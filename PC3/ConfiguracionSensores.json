@@ -1,0 +1,50 @@
+{
+  "ciudad": {
+    "filas": 5,
+    "columnas": 5
+  },
+  "sensores": [
+    {
+      "tipo": "espira_inductiva",
+      "interseccion": "INT-A1",
+      "intervalo_segundos": 10
+    },
+    {
+      "tipo": "camara",
+      "interseccion": "INT-A1",
+      "intervalo_segundos": 10
+    },
+    {
+      "tipo": "gps",
+      "interseccion": "INT-A1",
+      "intervalo_segundos": 10
+    },
+    {
+      "tipo": "espira_inductiva",
+      "interseccion": "INT-B2",
+      "intervalo_segundos": 10
+    },
+    {
+      "tipo": "camara",
+      "interseccion": "INT-B2",
+      "intervalo_segundos": 10
+    },
+    {
+      "tipo": "gps",
+      "interseccion": "INT-B2",
+      "intervalo_segundos": 10
+    }
+  ],
+  "puertos": {
+    "sensores_pub": 5555,
+    "broker_pub": 6666,
+    "analitica_push_bd_principal": 7777,
+    "analitica_push_bd_replica": 8888,
+    "analitica_pub_semaforos": 9999
+  },
+  "direcciones": {
+    "pc1": "127.0.0.1",
+    "pc2": "127.0.0.1",
+    "pc3": "127.0.0.1"
+  }
+}
