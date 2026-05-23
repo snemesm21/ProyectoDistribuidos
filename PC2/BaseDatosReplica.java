@@ -11,6 +11,7 @@ import java.time.format.DateTimeFormatter;
 
 public class BaseDatosReplica {
     private String puertoRecepcion;
+    private String puertoConsulta;
     private String archivoDB;
     private int contadorEventos;
 
@@ -45,10 +46,15 @@ public class BaseDatosReplica {
         "vehiculos_contados, intervalo_segundos, timestamp_inicio, timestamp_fin, volumen, " +
         "velocidad_promedio, nivel_congestion, timestamp_evento, json_raw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     
-    public BaseDatosReplica(String puertoRecepcion, String archivoDB) {
+    public BaseDatosReplica(String puertoRecepcion, String puertoConsulta, String archivoDB) {
         this.puertoRecepcion = puertoRecepcion;
+        this.puertoConsulta = puertoConsulta;
         this.archivoDB = archivoDB;
         this.contadorEventos = 0;
+    }
+
+    public BaseDatosReplica(String puertoRecepcion, String archivoDB) {
+        this(puertoRecepcion, null, archivoDB);
     }
     
     public void iniciar() {
@@ -56,6 +62,7 @@ public class BaseDatosReplica {
             inicializarBaseDatos();
             prepararConsultasMonitoreo();
             probarConexionMonitoreo();
+            iniciarServidorConsultas();
         } catch (Exception e) {
             System.err.println("[ERROR BD RÉPLICA] Inicializando SQLite: " + e.getMessage());
             e.printStackTrace();
@@ -90,6 +97,37 @@ public class BaseDatosReplica {
         }
     }
 
+    private void iniciarServidorConsultas() {
+        if (puertoConsulta == null || puertoConsulta.isBlank()) {
+            return;
+        }
+
+        Thread servidorConsultas = new Thread(() -> {
+            try (ZContext contextConsultas = new ZContext()) {
+                ZMQ.Socket rep = contextConsultas.createSocket(ZMQ.REP);
+                rep.bind("tcp://*:" + puertoConsulta);
+                System.out.println("[BD RÉPLICA] Consulta REP activa en puerto " + puertoConsulta);
+
+                while (!Thread.currentThread().isInterrupted()) {
+                    String solicitud = rep.recvStr(0);
+                    if (solicitud == null) {
+                        continue;
+                    }
+
+                    String respuesta = manejarSolicitudConsulta(solicitud);
+                    rep.send(respuesta.getBytes(ZMQ.CHARSET), 0);
+                }
+
+                rep.close();
+            } catch (Exception e) {
+                System.err.println("[ERROR BD RÉPLICA] Servidor de consultas: " + e.getMessage());
+            }
+        }, "bd-replica-consultas");
+
+        servidorConsultas.setDaemon(true);
+        servidorConsultas.start();
+    }
+
     private void inicializarBaseDatos() throws SQLException, ClassNotFoundException {
         Class.forName("org.sqlite.JDBC");
         conexion = DriverManager.getConnection("jdbc:sqlite:" + archivoDB);
@@ -99,6 +137,7 @@ public class BaseDatosReplica {
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_eventos_interseccion ON eventos(interseccion)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_eventos_tipo ON eventos(tipo_evento)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_eventos_timestamp ON eventos(timestamp_evento)");
+            stmt.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_eventos_json_raw ON eventos(json_raw)");
         }
 
         stmtInsertarEvento = conexion.prepareStatement(SQL_INSERTAR_EVENTO);
@@ -131,7 +170,7 @@ public class BaseDatosReplica {
         }
     }
 
-    private void almacenarEventoEnSQLite(String eventoJson) {
+    private synchronized void almacenarEventoEnSQLite(String eventoJson) {
         contadorEventos++;
         String recibidoEn = LocalDateTime.now().format(DateTimeFormatter.ISO_DATE_TIME);
         String tipoEvento = extraerCampoTexto(eventoJson, "tipo_evento");
@@ -207,6 +246,257 @@ public class BaseDatosReplica {
         if (contadorEventos % 10 == 0) {
             System.out.println("[BD RÉPLICA] " + contadorEventos + " eventos persistidos\n");
         }
+    }
+
+    private synchronized String manejarSolicitudConsulta(String solicitud) {
+        try {
+            String[] partes = solicitud.trim().split("\\s+");
+            if (partes.length == 0) {
+                return "ERROR|Solicitud vacia";
+            }
+
+            String comando = partes[0].toUpperCase();
+            if ("PING".equals(comando) || "HEALTH".equals(comando)) {
+                return "PONG|BD_REPLICA|" + archivoDB + "|" + contadorEventos;
+            }
+            if ("BACKUP_EXPORT".equals(comando)) {
+                return exportarBackupCompleto();
+            }
+            switch (comando) {
+                case "ESTADO":
+                case "RESUMEN":
+                    return consultarEstadoSistema();
+                case "INTERSECCION":
+                    if (partes.length < 2) {
+                        return "ERROR|Debe indicar la interseccion";
+                    }
+                    return consultarInterseccion(partes[1]);
+                case "HISTORICO":
+                    if (partes.length < 3) {
+                        return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                    }
+                    return consultarHistorico(partes[1], partes[2]);
+                case "ULTIMOS":
+                    int limite = 10;
+                    if (partes.length >= 2) {
+                        limite = Math.max(1, Integer.parseInt(partes[1]));
+                    }
+                    return consultarUltimosEventos(limite);
+                case "AYUDA":
+                    return "OK|Comandos: ESTADO, INTERSECCION <INT-X>, HISTORICO <inicio> <fin>, ULTIMOS <n>";
+                default:
+                    return "ERROR|Comando desconocido: " + comando;
+            }
+        } catch (Exception e) {
+            return "ERROR|" + e.getMessage();
+        }
+    }
+
+    private String consultarEstadoSistema() throws SQLException {
+        int totalEventos = 0;
+        try (ResultSet rs = stmtTotalEventos.executeQuery()) {
+            if (rs.next()) {
+                totalEventos = rs.getInt(1);
+            }
+        }
+
+        StringBuilder tipos = new StringBuilder();
+        try (Statement stmt = conexion.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                 "SELECT COALESCE(tipo_sensor, 'desconocido') AS tipo_sensor, COUNT(*) AS total " +
+                 "FROM eventos GROUP BY COALESCE(tipo_sensor, 'desconocido') ORDER BY total DESC, tipo_sensor ASC"
+             )) {
+            while (rs.next()) {
+                if (tipos.length() > 0) {
+                    tipos.append(", ");
+                }
+                tipos.append(rs.getString("tipo_sensor")).append("=").append(rs.getInt("total"));
+            }
+        }
+
+        String ultimoTimestamp = "N/A";
+        try (Statement stmt = conexion.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                 "SELECT timestamp_evento FROM eventos WHERE timestamp_evento IS NOT NULL ORDER BY id DESC LIMIT 1"
+             )) {
+            if (rs.next()) {
+                String valor = rs.getString(1);
+                if (valor != null && !valor.isBlank()) {
+                    ultimoTimestamp = valor;
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=ESTADO\n")
+            .append("ARCHIVO_DB=").append(archivoDB).append('\n')
+            .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
+            .append("EVENTOS_POR_TIPO=").append(tipos.length() == 0 ? "sin_datos" : tipos).append('\n')
+            .append("ULTIMO_EVENTO=").append(ultimoTimestamp)
+            .toString();
+    }
+
+    private String consultarInterseccion(String interseccion) throws SQLException {
+        int totalEventos = 0;
+        Double velocidadPromedio = null;
+
+        stmtEventosPorInterseccion.setString(1, interseccion);
+        try (ResultSet rs = stmtEventosPorInterseccion.executeQuery()) {
+            if (rs.next()) {
+                totalEventos = rs.getInt(1);
+            }
+        }
+
+        stmtVelocidadPromedioPorInterseccion.setString(1, interseccion);
+        try (ResultSet rs = stmtVelocidadPromedioPorInterseccion.executeQuery()) {
+            if (rs.next()) {
+                double valor = rs.getDouble(1);
+                if (!rs.wasNull()) {
+                    velocidadPromedio = valor;
+                }
+            }
+        }
+
+        StringBuilder ultimos = new StringBuilder();
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT id, tipo_evento, tipo_sensor, timestamp_evento, volumen, vehiculos_contados, velocidad_promedio, nivel_congestion " +
+                 "FROM eventos WHERE interseccion = ? ORDER BY id DESC LIMIT 5"
+             )) {
+            stmt.setString(1, interseccion);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    if (ultimos.length() > 0) {
+                        ultimos.append('\n');
+                    }
+                    ultimos.append("- #").append(rs.getInt("id"))
+                        .append(" | ").append(valorTexto(rs.getString("tipo_sensor")))
+                        .append(" | ").append(valorTexto(rs.getString("tipo_evento")))
+                        .append(" | ts=").append(valorTexto(rs.getString("timestamp_evento")))
+                        .append(" | Q=").append(valorNumerico(rs.getObject("volumen")))
+                        .append(" | Cv=").append(valorNumerico(rs.getObject("vehiculos_contados")))
+                        .append(" | Vp=").append(valorDecimal(rs.getObject("velocidad_promedio")))
+                        .append(" | Nivel=").append(valorTexto(rs.getString("nivel_congestion")));
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=INTERSECCION\n")
+            .append("INTERSECCION=").append(interseccion).append('\n')
+            .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
+            .append("VELOCIDAD_PROMEDIO=").append(velocidadPromedio != null ? String.format("%.2f", velocidadPromedio) : "N/A").append('\n')
+            .append("ULTIMOS_EVENTOS=\n")
+            .append(ultimos.length() == 0 ? "- sin eventos" : ultimos)
+            .toString();
+    }
+
+    private String consultarHistorico(String fechaInicio, String fechaFin) throws SQLException {
+        int totalEventos = 0;
+        StringBuilder eventos = new StringBuilder();
+
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT id, tipo_evento, tipo_sensor, interseccion, timestamp_evento FROM eventos " +
+                 "WHERE timestamp_evento BETWEEN ? AND ? ORDER BY timestamp_evento DESC LIMIT 20"
+             )) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    totalEventos++;
+                    if (eventos.length() > 0) {
+                        eventos.append('\n');
+                    }
+                    eventos.append("- #").append(rs.getInt("id"))
+                        .append(" | ").append(valorTexto(rs.getString("tipo_sensor")))
+                        .append(" | ").append(valorTexto(rs.getString("tipo_evento")))
+                        .append(" | ").append(valorTexto(rs.getString("interseccion")))
+                        .append(" | ts=").append(valorTexto(rs.getString("timestamp_evento")));
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=HISTORICO\n")
+            .append("DESDE=").append(fechaInicio).append('\n')
+            .append("HASTA=").append(fechaFin).append('\n')
+            .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
+            .append("EVENTOS=\n")
+            .append(eventos.length() == 0 ? "- sin eventos en el rango" : eventos)
+            .toString();
+    }
+
+    private String consultarUltimosEventos(int limite) throws SQLException {
+        StringBuilder eventos = new StringBuilder();
+
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT id, tipo_evento, tipo_sensor, interseccion, timestamp_evento FROM eventos ORDER BY id DESC LIMIT ?"
+             )) {
+            stmt.setInt(1, limite);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    if (eventos.length() > 0) {
+                        eventos.append('\n');
+                    }
+                    eventos.append("- #").append(rs.getInt("id"))
+                        .append(" | ").append(valorTexto(rs.getString("tipo_sensor")))
+                        .append(" | ").append(valorTexto(rs.getString("tipo_evento")))
+                        .append(" | ").append(valorTexto(rs.getString("interseccion")))
+                        .append(" | ts=").append(valorTexto(rs.getString("timestamp_evento")));
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=ULTIMOS\n")
+            .append("LIMITE=").append(limite).append('\n')
+            .append("EVENTOS=\n")
+            .append(eventos.length() == 0 ? "- sin eventos" : eventos)
+            .toString();
+    }
+
+    private synchronized String exportarBackupCompleto() throws SQLException {
+        StringBuilder snapshot = new StringBuilder();
+        int total = 0;
+
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT json_raw FROM eventos ORDER BY id ASC"
+             );
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                if (snapshot.length() > 0) {
+                    snapshot.append('\n');
+                }
+                snapshot.append(rs.getString(1));
+                total++;
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK|BACKUP_EXPORT|count=").append(total).append('\n')
+            .append(snapshot)
+            .toString();
+    }
+
+    private String valorTexto(String valor) {
+        return valor == null || valor.isBlank() ? "N/A" : valor;
+    }
+
+    private String valorNumerico(Object valor) {
+        return valor == null ? "N/A" : String.valueOf(valor);
+    }
+
+    private String valorDecimal(Object valor) {
+        if (valor == null) {
+            return "N/A";
+        }
+        if (valor instanceof Number) {
+            return String.format("%.2f", ((Number) valor).doubleValue());
+        }
+        return valor.toString();
     }
 
     private String extraerCampoTexto(String json, String campo) {
@@ -297,6 +587,7 @@ public class BaseDatosReplica {
         Configuracion config = Configuracion.getInstance();
         BaseDatosReplica bd = new BaseDatosReplica(
             String.valueOf(config.getAnaliticaPushBdReplica()),
+            String.valueOf(config.getBdReplicaRep()),
             "bd_replica.db"
         );
 

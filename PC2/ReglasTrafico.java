@@ -10,24 +10,37 @@ public class ReglasTrafico {
         }
 
         // Estado 2: CONGESTIÓN
-        // Implementación con correlación: cada tipo de sensor emite su señal de alarma
-        // y sólo si al menos DOS tipos de sensores reportan condición crítica se considera
-        // CONGESTIÓN. Evitamos usar OR entre sensores, en vez contamos las senales positivas.
-        boolean camaraAlarma = cola >= 10; // indicador por cámara
-        boolean espiraAlarma = vehiculosContados >= 15; // indicador por espira
-        boolean gpsAlarma = velocidadPromedio < 20 || densidad >= 40 || "ALTA".equalsIgnoreCase(nivelCongestion);
+        // Correlación de eventos: se requiere que al menos 2 de 3 sensores
+        // (cámara, espira y GPS) reporten una condición crítica para declarar congestión.
+        // La lógica interna de cada sensor puede usar OR, pero la decisión final no.
+        int senalesCriticas = contarSenalesCriticas(cola, vehiculosContados, velocidadPromedio, densidad, nivelCongestion);
 
-        int senales = 0;
-        if (camaraAlarma) senales++;
-        if (espiraAlarma) senales++;
-        if (gpsAlarma) senales++;
-
-        if (senales >= 2) {
+        if (senalesCriticas >= 2) {
             return EstadoTrafico.CONGESTION;
         }
 
         // Si no alcanza correlación, consideramos tráfico aún NORMAL en este umbral intermedio
         return EstadoTrafico.NORMAL;
+    }
+
+    private static int contarSenalesCriticas(int cola, int vehiculosContados, double velocidadPromedio,
+                                             double densidad, String nivelCongestion) {
+        int senales = 0;
+
+        if (cola >= 10) {
+            senales++;
+        }
+
+        if (vehiculosContados >= 15) {
+            senales++;
+        }
+
+        boolean gpsCritico = velocidadPromedio < 20 || densidad >= 40 || "ALTA".equalsIgnoreCase(nivelCongestion);
+        if (gpsCritico) {
+            senales++;
+        }
+
+        return senales;
     }
     
 

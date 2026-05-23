@@ -1,5 +1,6 @@
 import org.zeromq.ZMQ;
 import org.zeromq.ZContext;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -9,9 +10,14 @@ public class ServicioAnalitica {
     private String bdPrincipalAddress;
     private String bdReplicaAddress;
     private String semaforosAddress;
+    private String controlAddress;
     private ZContext context;
+    private volatile boolean persistirEnReplica;
+    private volatile boolean failoverActiva;
+    private volatile boolean principalDisponible;
 
     private Map<String, DatosInterseccion> datosIntersecciones;
+    private final LinkedBlockingQueue<String> colaEventosPendientesPrimario;
     
     private class DatosInterseccion {
         int cola = 0;
@@ -20,15 +26,28 @@ public class ServicioAnalitica {
         double densidad = 0;
         String nivelCongestion = "NORMAL";
         EstadoTrafico estadoActual = EstadoTrafico.NORMAL;
+        long priorizacionHasta = 0L;
+        String orientacionPrioridad = "HORIZONTAL";
+        String motivoPrioridad = "";
+
+        boolean priorizacionActiva() {
+            return System.currentTimeMillis() < priorizacionHasta;
+        }
     }
     
     public ServicioAnalitica(String brokerAddress, String bdPrincipalAddress, 
-                             String bdReplicaAddress, String semaforosAddress) {
+                             String bdReplicaAddress, String semaforosAddress,
+                             String controlAddress) {
         this.brokerAddress = brokerAddress;
         this.bdPrincipalAddress = bdPrincipalAddress;
         this.bdReplicaAddress = bdReplicaAddress;
         this.semaforosAddress = semaforosAddress;
+        this.controlAddress = controlAddress;
         this.datosIntersecciones = new HashMap<>();
+        this.colaEventosPendientesPrimario = new LinkedBlockingQueue<>();
+        this.persistirEnReplica = false;
+        this.failoverActiva = false;
+        this.principalDisponible = true;
     }
     
     public void iniciar() {
@@ -40,31 +59,38 @@ public class ServicioAnalitica {
         subscriber.subscribe("ESPIRA".getBytes(ZMQ.CHARSET));
         subscriber.subscribe("CAMARA".getBytes(ZMQ.CHARSET));
         subscriber.subscribe("GPS".getBytes(ZMQ.CHARSET));
-        
 
         ZMQ.Socket pusherBDPrincipal = context.createSocket(ZMQ.PUSH);
         pusherBDPrincipal.connect(bdPrincipalAddress);
-        
 
         ZMQ.Socket pusherBDReplica = context.createSocket(ZMQ.PUSH);
         pusherBDReplica.connect(bdReplicaAddress);
-        
 
         ZMQ.Socket publisherSemaforos = context.createSocket(ZMQ.PUB);
         publisherSemaforos.bind(semaforosAddress);
+
+        ZMQ.Socket controlRep = context.createSocket(ZMQ.REP);
+        controlRep.bind(controlAddress);
+
+        iniciarSupervisorFailover();
+
+        ZMQ.Poller poller = context.createPoller(2);
+        poller.register(subscriber, ZMQ.Poller.POLLIN);
+        poller.register(controlRep, ZMQ.Poller.POLLIN);
         
         System.out.println("╔════════════════════════════════════════════╗");
         System.out.println("║      PC2 - SERVICIO DE ANALÍTICA          ║");
         System.out.println("╠════════════════════════════════════════════╣");
         System.out.println("║ BD Principal: " + String.format("%-28s", bdPrincipalAddress) + "║");
         System.out.println("║ BD Réplica:   " + String.format("%-28s", bdReplicaAddress) + "║");
+        System.out.println("║ Control REP:  " + String.format("%-28s", controlAddress) + "║");
         System.out.println("║ Estado:       " + String.format("%-28s", "ACTIVO") + "║");
         System.out.println("╚════════════════════════════════════════════╝");
             System.out.println("[ANALÍTICA] Servicio iniciado");
             System.out.println("[ANALÍTICA] Escuchando eventos del broker");
             System.out.println("[ANALÍTICA] Reglas activas:");
             System.out.println("  - NORMAL: Q < 5 AND Cv <= 12 AND Vp > 35 AND D < 20");
-            System.out.println("  - CONGESTION: Q >= 10 OR Cv >= 15 OR Vp < 20 OR D >= 40 OR GPS=ALTA");
+            System.out.println("  - CONGESTION: 2 o más sensores críticos (cámara + espira + GPS)");
             System.out.println("  - PRIORIZACION: comando manual (duración extendida)");
             System.out.println("=================================\n");
             
@@ -72,10 +98,23 @@ public class ServicioAnalitica {
             
             try {
                 while (!Thread.currentThread().isInterrupted()) {
-                    String mensaje = subscriber.recvStr(0);
-                    
-                    if (mensaje != null) {
-                        procesarEvento(mensaje, pusherBDPrincipal, pusherBDReplica, publisherSemaforos);
+                    poller.poll(1000);
+
+                    if (poller.pollin(0)) {
+                        String mensaje = subscriber.recvStr(0);
+                        if (mensaje != null) {
+                            procesarEvento(mensaje, pusherBDPrincipal, pusherBDReplica, publisherSemaforos);
+                        }
+                    }
+
+                    if (poller.pollin(1)) {
+                        String solicitud = controlRep.recvStr(0);
+                        String respuesta = procesarComandoManual(solicitud, publisherSemaforos);
+                        controlRep.send(respuesta.getBytes(ZMQ.CHARSET), 0);
+                    }
+
+                    if (principalDisponible && !colaEventosPendientesPrimario.isEmpty()) {
+                        sincronizarPendientesConPrincipal(pusherBDPrincipal);
                     }
                 }
             } finally {
@@ -83,6 +122,7 @@ public class ServicioAnalitica {
                 pusherBDPrincipal.close();
                 pusherBDReplica.close();
                 publisherSemaforos.close();
+                controlRep.close();
                 context.close();
             }
             
@@ -136,6 +176,16 @@ public class ServicioAnalitica {
                     break;
             }
 
+            if (datos.priorizacionActiva()) {
+                datos.estadoActual = EstadoTrafico.PRIORIZACION;
+                long restantes = Math.max(0L, datos.priorizacionHasta - System.currentTimeMillis());
+                System.out.println("[ANALÍTICA] Priorización activa en " + interseccion
+                    + " | motivo=" + datos.motivoPrioridad
+                    + " | orientación=" + datos.orientacionPrioridad
+                    + " | restante=" + (restantes / 1000L) + "s");
+                return;
+            }
+
             EstadoTrafico estadoAnterior = datos.estadoActual;
             datos.estadoActual = ReglasTrafico.evaluarEstado(
                 datos.cola, datos.vehiculosContados, datos.velocidadPromedio, datos.densidad, datos.nivelCongestion
@@ -145,10 +195,8 @@ public class ServicioAnalitica {
             if (estadoAnterior != datos.estadoActual) {
                 int tiempoVerde = ReglasTrafico.obtenerTiempoSemaforo(datos.estadoActual);
 
-                // Calcular orientación a priorizar según sensores (heurística simple):
-                // - Si la cámara reporta cola alta, priorizamos HORIZONTAL
-                // - Si la espira reporta conteo alto, priorizamos VERTICAL
-                // - Si ambos o ninguno, priorizamos HORIZONTAL por defecto
+                // La orientación se resuelve por heurística, pero la congestión ya fue
+                // correlacionada antes: se requieren al menos 2 sensores críticos.
                 boolean camaraFlag = datos.cola >= 10;
                 boolean espiraFlag = datos.vehiculosContados >= 15;
                 boolean gpsFlag = datos.velocidadPromedio < 20 || datos.densidad >= 40 || "ALTA".equalsIgnoreCase(datos.nivelCongestion);
@@ -187,6 +235,102 @@ public class ServicioAnalitica {
         } catch (Exception e) {
             System.err.println("[ERROR ANALÍTICA] Procesando evento: " + e.getMessage());
         }
+    }
+
+    private String procesarComandoManual(String solicitud, ZMQ.Socket semaforos) {
+        try {
+            if (solicitud == null || solicitud.trim().isEmpty()) {
+                return "ERROR|Solicitud vacia";
+            }
+
+            String[] partes = solicitud.trim().split("\\s+");
+            String comando = partes[0].toUpperCase();
+
+            if ("PRIORIZAR".equals(comando)) {
+                return aplicarPriorizacionManual(partes, semaforos);
+            }
+
+            if ("LIBERAR".equals(comando)) {
+                return liberarPriorizacionManual(partes);
+            }
+
+            return "ERROR|Comando manual desconocido";
+        } catch (Exception e) {
+            return "ERROR|" + e.getMessage();
+        }
+    }
+
+    private String aplicarPriorizacionManual(String[] partes, ZMQ.Socket semaforos) {
+        if (partes.length < 2) {
+            return "ERROR|Debe indicar la interseccion";
+        }
+
+        String interseccion = partes[1];
+        String orientacion = "HORIZONTAL";
+        int indice = 2;
+
+        if (partes.length > indice && ("HORIZONTAL".equalsIgnoreCase(partes[indice]) || "VERTICAL".equalsIgnoreCase(partes[indice]))) {
+            orientacion = partes[indice].toUpperCase();
+            indice++;
+        }
+
+        int duracion = 60;
+        if (partes.length > indice) {
+            try {
+                duracion = Integer.parseInt(partes[indice]);
+                indice++;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        String motivo = "PRIORIDAD_MANUAL";
+        if (partes.length > indice) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = indice; i < partes.length; i++) {
+                if (sb.length() > 0) {
+                    sb.append(' ');
+                }
+                sb.append(partes[i]);
+            }
+            motivo = sb.toString();
+        }
+
+        DatosInterseccion datos = datosIntersecciones.computeIfAbsent(interseccion, k -> new DatosInterseccion());
+        datos.estadoActual = EstadoTrafico.PRIORIZACION;
+        datos.orientacionPrioridad = orientacion;
+        datos.motivoPrioridad = motivo;
+        datos.priorizacionHasta = System.currentTimeMillis() + (duracion * 1000L);
+
+        String comandoSemaforo = String.format(
+            "{\"interseccion\":\"%s\",\"estado\":\"VERDE\",\"tiempo\":%d,\"razon\":\"PRIORIZACION:%s\",\"orientacion\":\"%s\"}",
+            interseccion, duracion, motivo, orientacion
+        );
+        semaforos.send(("COMANDO " + comandoSemaforo).getBytes(ZMQ.CHARSET), 0);
+
+        System.out.println("\n╔════════════════════════════════════════════════════════════╗");
+        System.out.println("║            PRIORIZACIÓN MANUAL APLICADA                   ║");
+        System.out.println("╠════════════════════════════════════════════════════════════╣");
+        System.out.println("║ Intersección:        " + String.format("%-38s", interseccion) + "║");
+        System.out.println("║ Orientación:         " + String.format("%-38s", orientacion) + "║");
+        System.out.println("║ Duración:            " + String.format("%-38s", duracion + "s") + "║");
+        System.out.println("║ Motivo:              " + String.format("%-38s", motivo) + "║");
+        System.out.println("╚════════════════════════════════════════════════════════════╝\n");
+
+        return "OK|Priorizacion aplicada a " + interseccion + " por " + duracion + "s";
+    }
+
+    private String liberarPriorizacionManual(String[] partes) {
+        if (partes.length < 2) {
+            return "ERROR|Debe indicar la interseccion";
+        }
+
+        String interseccion = partes[1];
+        DatosInterseccion datos = datosIntersecciones.computeIfAbsent(interseccion, k -> new DatosInterseccion());
+        datos.priorizacionHasta = 0L;
+        datos.estadoActual = EstadoTrafico.NORMAL;
+        datos.motivoPrioridad = "";
+
+        return "OK|Priorizacion liberada en " + interseccion;
     }
 
     private String extraerInterseccionDesdeSensorId(String sensorId) {
@@ -232,14 +376,105 @@ public class ServicioAnalitica {
         }
     }
     
+    private void iniciarSupervisorFailover() {
+        Thread supervisor = new Thread(() -> {
+            boolean ultimoEstadoDisponible = true;
+            while (!Thread.currentThread().isInterrupted()) {
+                boolean principalViva = verificarDestino(bdPrincipalAddress, "BD_PRINCIPAL");
+                principalDisponible = principalViva;
+
+                if (principalViva && !ultimoEstadoDisponible) {
+                    System.out.println("[ANALÍTICA] BD principal recuperada; pendiente sincronización de eventos acumulados");
+                }
+
+                if (!principalViva) {
+                    if (!persistirEnReplica) {
+                        persistirEnReplica = true;
+                        failoverActiva = true;
+                        System.out.println("[ANALÍTICA] Failover activado: persistencia redirigida a la réplica");
+                    }
+                } else if (failoverActiva && colaEventosPendientesPrimario.isEmpty()) {
+                    persistirEnReplica = false;
+                    failoverActiva = false;
+                    System.out.println("[ANALÍTICA] Failover desactivado: el primario ya está disponible y sincronizado");
+                }
+
+                ultimoEstadoDisponible = principalViva;
+                try {
+                    Thread.sleep(2000L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }, "analitica-failover-supervisor");
+
+        supervisor.setDaemon(true);
+        supervisor.start();
+    }
+
+    private boolean verificarDestino(String direccion, String etiqueta) {
+        try (ZContext contextoPing = new ZContext()) {
+            ZMQ.Socket req = contextoPing.createSocket(ZMQ.REQ);
+            req.setReceiveTimeOut(1000);
+            req.setSendTimeOut(1000);
+            req.connect(direccion);
+            req.send("PING".getBytes(ZMQ.CHARSET), 0);
+            String respuesta = req.recvStr(0);
+            req.close();
+            return respuesta != null && respuesta.startsWith("PONG");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void almacenarEvento(String jsonEvento, ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
         byte[] data = jsonEvento.getBytes(ZMQ.CHARSET);
 
-        boolean exitoPrincipal = bdPrincipal.send(data, 0);
-        boolean exitoReplica = bdReplica.send(data, 0);
+        boolean exito;
+        if (persistirEnReplica) {
+            exito = bdReplica.send(data, 0);
+            if (!exito) {
+                System.err.println("[ANALÍTICA] Error enviando a réplica, se conserva failover activo");
+            }
+            colaEventosPendientesPrimario.offer(jsonEvento);
+        } else {
+            exito = bdPrincipal.send(data, 0);
+            if (!exito) {
+                System.err.println("[ANALÍTICA] Error enviando a BD principal, activando failover a réplica");
+                persistirEnReplica = true;
+                failoverActiva = true;
+                principalDisponible = false;
+                colaEventosPendientesPrimario.offer(jsonEvento);
+                boolean replicaOk = bdReplica.send(data, 0);
+                if (!replicaOk) {
+                    System.err.println("[ANALÍTICA] Error enviando también a la réplica");
+                }
+            }
+        }
+    }
 
-        if (!exitoPrincipal || !exitoReplica) {
-            System.err.println("[  ANALÍTICA] Error enviando evento a BD: Principal=" + exitoPrincipal + ", Réplica=" + exitoReplica);
+    private void sincronizarPendientesConPrincipal(ZMQ.Socket bdPrincipal) {
+        if (!principalDisponible) {
+            return;
+        }
+
+        String evento;
+        while ((evento = colaEventosPendientesPrimario.poll()) != null) {
+            boolean enviado = bdPrincipal.send(evento.getBytes(ZMQ.CHARSET), 0);
+            if (!enviado) {
+                colaEventosPendientesPrimario.offer(evento);
+                principalDisponible = false;
+                persistirEnReplica = true;
+                failoverActiva = true;
+                System.out.println("[ANALÍTICA] Falló la sincronización con la BD principal; se mantiene failover activo");
+                return;
+            }
+        }
+
+        if (failoverActiva) {
+            persistirEnReplica = false;
+            failoverActiva = false;
+            System.out.println("[ANALÍTICA] Sincronización completada: la BD principal recuperó los eventos pendientes");
         }
     }
     
@@ -251,6 +486,7 @@ public class ServicioAnalitica {
             String bdPrincipalAddress = "tcp://" + config.getPC3() + ":" + config.getAnaliticaPushBdPrincipal();
             String bdReplicaAddress = "tcp://" + config.getPC2() + ":" + config.getAnaliticaPushBdReplica();
             String semaforosAddress = "tcp://*:" + config.getAnaliticaPubSemaforos();
+            String controlAddress = "tcp://*:" + config.getAnaliticaRepControl();
             
             System.out.println("╔════════════════════════════════════════════╗");
             System.out.println("║          CONFIGURACIÓN SERVICIO           ║");
@@ -259,13 +495,15 @@ public class ServicioAnalitica {
             System.out.println("║ BD Principal: " + String.format("%-28s", bdPrincipalAddress) + "║");
             System.out.println("║ BD Réplica:   " + String.format("%-28s", bdReplicaAddress) + "║");
             System.out.println("║ Semáforos:    " + String.format("%-28s", semaforosAddress) + "║");
+            System.out.println("║ Control REP:  " + String.format("%-28s", controlAddress) + "║");
             System.out.println("╚════════════════════════════════════════════╝\n");
             
             ServicioAnalitica servicio = new ServicioAnalitica(
                 brokerAddress,
                 bdPrincipalAddress,
                 bdReplicaAddress,
-                semaforosAddress
+                semaforosAddress,
+                controlAddress
             );
             servicio.iniciar();
         } catch (Exception e) {

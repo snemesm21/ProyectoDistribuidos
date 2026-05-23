@@ -18,7 +18,9 @@ public class Configuracion {
     private int analiticaPushBdPrincipal;
     private int analiticaPushBdReplica;
     private int analiticaPubSemaforos;
+    private int analiticaRepControl;
     private int bdPrincipalRep;
+    private int bdReplicaRep;
     private int filas;
     private int columnas;
 
@@ -48,10 +50,14 @@ public class Configuracion {
             analiticaPushBdPrincipal = Integer.parseInt(extraerValor(contenido, "analitica_push_bd_principal"));
             analiticaPushBdReplica   = Integer.parseInt(extraerValor(contenido, "analitica_push_bd_replica"));
             analiticaPubSemaforos    = Integer.parseInt(extraerValor(contenido, "analitica_pub_semaforos"));
+            analiticaRepControl      = Integer.parseInt(extraerValor(contenido, "analitica_rep_control"));
 
 
             String repStr = extraerValor(contenido, "bd_principal_rep");
             bdPrincipalRep = repStr.isEmpty() ? 11000 : Integer.parseInt(repStr);
+
+            String repReplicaStr = extraerValor(contenido, "bd_replica_rep");
+            bdReplicaRep = repReplicaStr.isEmpty() ? 11001 : Integer.parseInt(repReplicaStr);
 
             filas    = Integer.parseInt(extraerValor(contenido, "filas"));
             columnas = Integer.parseInt(extraerValor(contenido, "columnas"));
@@ -71,7 +77,9 @@ public class Configuracion {
             analiticaPushBdPrincipal = 7777;
             analiticaPushBdReplica   = 8888;
             analiticaPubSemaforos    = 9999;
+            analiticaRepControl      = 12000;
             bdPrincipalRep           = 11000;
+            bdReplicaRep             = 11001;
             filas                    = 5;
             columnas                 = 5;
         }
@@ -129,7 +137,9 @@ public class Configuracion {
     public int getAnaliticaPushBdPrincipal()    { return analiticaPushBdPrincipal; }
     public int getAnaliticaPushBdReplica()      { return analiticaPushBdReplica; }
     public int getAnaliticaPubSemaforos()       { return analiticaPubSemaforos; }
+    public int getAnaliticaRepControl()         { return analiticaRepControl; }
     public int getBdPrincipalRep()              { return bdPrincipalRep; }
+    public int getBdReplicaRep()                { return bdReplicaRep; }
     public int getFilas()                       { return filas; }
     public int getColumnas()                    { return columnas; }
 }

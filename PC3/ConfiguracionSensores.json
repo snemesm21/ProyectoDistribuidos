@@ -40,7 +40,10 @@
     "broker_pub": 6666,
     "analitica_push_bd_principal": 7777,
     "analitica_push_bd_replica": 8888,
-    "analitica_pub_semaforos": 9999
+    "analitica_pub_semaforos": 9999,
+    "analitica_rep_control": 12000,
+    "bd_principal_rep": 11000,
+    "bd_replica_rep": 11001
   },
   "direcciones": {
     "pc1": "127.0.0.1",
