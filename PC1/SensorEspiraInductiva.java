@@ -2,9 +2,7 @@ import org.zeromq.ZMQ;
 import org.zeromq.ZContext;
 import java.util.Random;
 
-/**
- * Sensor Espira Inductiva - PC1
- */
+
 public class SensorEspiraInductiva implements Runnable {
     private String sensorId;
     private String interseccion;
@@ -30,11 +28,10 @@ public class SensorEspiraInductiva implements Runnable {
             
             System.out.println("[ESPIRA] " + sensorId + " iniciado en " + interseccion);
             
-            // Esperar un poco para que el socket se establezca
+
             Thread.sleep(1000);
             
             while (activo) {
-                // Tráfico estable con picos ocasionales
                 double probabilidad = random.nextDouble();
                 int vehiculosContados;
 

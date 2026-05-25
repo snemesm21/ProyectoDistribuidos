@@ -2,10 +2,7 @@ import org.zeromq.ZMQ;
 import org.zeromq.ZContext;
 import java.util.Random;
 
-/**
- * Sensor Cámara de Tráfico - PC1
- * Genera eventos de longitud de cola y velocidad promedio
- */
+
 public class SensorCamara implements Runnable {
     private String sensorId;
     private String interseccion;
@@ -34,21 +31,17 @@ public class SensorCamara implements Runnable {
             Thread.sleep(1000);
             
             while (activo) {
-                // Escenario con mayor probabilidad de tráfico normal
                 double probabilidad = random.nextDouble();
                 int volumen;
                 double velocidadPromedio;
 
                 if (probabilidad < 0.80) {
-                    // Tráfico normal: cola baja y velocidad alta
                     volumen = random.nextInt(5); // 0-4
                     velocidadPromedio = 36 + random.nextDouble() * 14; // 36-50
                 } else if (probabilidad < 0.95) {
-                    // Condición intermedia
                     volumen = 5 + random.nextInt(5); // 5-9
                     velocidadPromedio = 25 + random.nextDouble() * 10; // 25-35
                 } else {
-                    // Congestión ocasional
                     volumen = 10 + random.nextInt(6); // 10-15
                     velocidadPromedio = 10 + random.nextDouble() * 9; // 10-19
                 }

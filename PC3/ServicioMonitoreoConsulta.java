@@ -2,10 +2,7 @@ import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 import java.util.Scanner;
 
-/**
- * Servicio de monitoreo y consulta para PC3.
- * Consulta la base principal por REQ/REP y, si falla, usa la réplica.
- */
+
 public class ServicioMonitoreoConsulta {
 
     private final String bdPrincipalAddress;

@@ -1,10 +1,7 @@
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-/**
- * Evento generado por una espira inductiva
- * Mide: Conteo vehicular (Cv)
- */
+
 public class EventoEspira extends Evento {
     private int vehiculosContados;
     private int intervaloSegundos;

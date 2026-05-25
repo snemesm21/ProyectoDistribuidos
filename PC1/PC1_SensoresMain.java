@@ -6,10 +6,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Aplicación principal PC1
- * Genera automáticamente 3 sensores por cada intersección
- */
+
 public class PC1_SensoresMain {
     
     // Patrón para extraer intervalo de JSON
@@ -128,11 +125,10 @@ public class PC1_SensoresMain {
                 }
             }
 
-            // Leer intervalo
+
             Matcher mIntervalo = PATRON_INTERVALO.matcher(json);
             int intervalo = mIntervalo.find() ? Integer.parseInt(mIntervalo.group(1)) : 10;
 
-            // Tipos de sensor (fijos, los 3 siempre)
             String[] tipos = {"espira_inductiva", "camara", "gps"};
 
             System.out.println("Cuadrícula: " + filas + "×" + columnas
@@ -141,8 +137,6 @@ public class PC1_SensoresMain {
             System.out.println("Total sensores: " + (filas * columnas * tipos.length));
             System.out.println("Intervalo: " + intervalo + "s");
             System.out.println("Broker: " + brokerAddress + "\n");
-
-            // Generar un hilo por cada sensor de cada intersección
             for (String etFila : etiquetasFilas) {
                 for (String etCol : etiquetasColumnas) {
                     String interseccion = "INT-" + etFila + etCol;

@@ -1,8 +1,6 @@
 import java.time.LocalDateTime;
 
-/**
- * Representa un semáforo unidireccional (una vía) dentro de una intersección.
- */
+
 public class SemaforoVia {
     public enum Orientacion { HORIZONTAL, VERTICAL }
 

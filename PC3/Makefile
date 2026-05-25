@@ -4,7 +4,7 @@ SOURCES = $(wildcard *.java)
 
 .PHONY: all check-jars compile run run-db run-all clean
 
-all: compile
+all: run-all
 
 check-jars:
 	@test -f jeromq-0.5.3.jar || (echo "ERROR: falta jeromq-0.5.3.jar" && exit 1)

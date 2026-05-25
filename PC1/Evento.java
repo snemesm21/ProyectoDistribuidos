@@ -1,9 +1,6 @@
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-/**
- * Clase base para todos los eventos del sistema
- */
 public abstract class Evento {
     protected String sensorId;
     protected String tipoSensor;

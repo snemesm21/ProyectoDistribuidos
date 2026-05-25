@@ -1,13 +1,9 @@
 import java.time.LocalDateTime;
 
-/**
- * Representa los semáforos en una intersección
-
- */
 public class Semaforo {
     private String interseccion;
-    private EstadoSemaforo estadoHorizontal;  // Tráfico en filas (Occidente-Oriente)
-    private EstadoSemaforo estadoVertical;    // Tráfico en columnas (Norte-Sur)
+    private EstadoSemaforo estadoHorizontal; 
+    private EstadoSemaforo estadoVertical;   
     private LocalDateTime ultimoCambio;
     private int tiempoActual;
     
@@ -19,11 +15,7 @@ public class Semaforo {
         this.ultimoCambio = LocalDateTime.now();
         this.tiempoActual = 15;
     }
-    
-    /**
-     * Cambia el estado del eje horizontal
-     * Automáticamente invierte el vertical para coordinación
-     */
+
     public void cambiarEstadoHorizontal(EstadoSemaforo nuevoEstado, int tiempoSegundos) {
         this.estadoHorizontal = nuevoEstado;
         this.estadoVertical = (nuevoEstado == EstadoSemaforo.VERDE) ? 
@@ -32,10 +24,7 @@ public class Semaforo {
         this.ultimoCambio = LocalDateTime.now();
     }
     
-    /**
-     * Cambia el estado del eje vertical
-     * Automáticamente invierte el horizontal para coordinación
-     */
+
     public void cambiarEstadoVertical(EstadoSemaforo nuevoEstado, int tiempoSegundos) {
         this.estadoVertical = nuevoEstado;
         this.estadoHorizontal = (nuevoEstado == EstadoSemaforo.VERDE) ? 
@@ -43,10 +32,7 @@ public class Semaforo {
         this.tiempoActual = tiempoSegundos;
         this.ultimoCambio = LocalDateTime.now();
     }
-    
-    /**
-     * Alterna entre horizontal verde y vertical verde
-     */
+
     public void alternar(int tiempoSegundos) {
         if (estadoHorizontal == EstadoSemaforo.VERDE) {
             estadoHorizontal = EstadoSemaforo.ROJO;

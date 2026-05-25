@@ -3,23 +3,16 @@ public class ReglasTrafico {
 
     public static EstadoTrafico evaluarEstado(int cola, int vehiculosContados, double velocidadPromedio,
                                               double densidad, String nivelCongestion) {
-        // Estado 1: TRÁFICO NORMAL
-        // Condición por sensores: Q < 5 (cámara), Cv <= 12 (espira), D < 20 y Vp > 35 (GPS)
+
         if (cola < 5 && vehiculosContados <= 12 && velocidadPromedio > 35 && densidad < 20) {
             return EstadoTrafico.NORMAL;
         }
-
-        // Estado 2: CONGESTIÓN
-        // Correlación de eventos: se requiere que al menos 2 de 3 sensores
-        // (cámara, espira y GPS) reporten una condición crítica para declarar congestión.
-        // La lógica interna de cada sensor puede usar OR, pero la decisión final no.
         int senalesCriticas = contarSenalesCriticas(cola, vehiculosContados, velocidadPromedio, densidad, nivelCongestion);
 
         if (senalesCriticas >= 2) {
             return EstadoTrafico.CONGESTION;
         }
 
-        // Si no alcanza correlación, consideramos tráfico aún NORMAL en este umbral intermedio
         return EstadoTrafico.NORMAL;
     }
 

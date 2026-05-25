@@ -1,7 +1,4 @@
-/**
- * Evento generado por sensor GPS
- * Mide: Densidad de tráfico (Dt)
- */
+
 public class EventoGPS extends Evento {
     private String nivelCongestion; // ALTA, NORMAL, BAJA
     private double densidad;

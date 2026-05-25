@@ -1,10 +1,7 @@
-/**
- * Evento generado por una cámara de tráfico
- * Mide: Longitud de cola (Lq) y velocidad promedio
- */
+
 public class EventoCamara extends Evento {
-    private int volumen; // Número de vehículos en espera
-    private double velocidadPromedio; // Velocidad promedio en km/h 
+    private int volumen; 
+    private double velocidadPromedio; 
     
     public EventoCamara(String sensorId, String interseccion, int volumen, double velocidadPromedio) {
         super(sensorId, "camara", interseccion);

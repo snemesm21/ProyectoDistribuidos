@@ -1,6 +1,4 @@
-/**
- * Agrupa los dos semáforos (una vía horizontal y una vertical) de una intersección.
- */
+
 public class InterseccionSemaforos {
     private final String interseccion;
     private final SemaforoVia horizontal;
@@ -8,7 +6,6 @@ public class InterseccionSemaforos {
 
     public InterseccionSemaforos(String interseccion) {
         this.interseccion = interseccion;
-        // Por defecto: horizontal VERDE, vertical ROJO
         this.horizontal = new SemaforoVia(interseccion, SemaforoVia.Orientacion.HORIZONTAL, EstadoSemaforo.VERDE, 15);
         this.vertical   = new SemaforoVia(interseccion, SemaforoVia.Orientacion.VERTICAL,   EstadoSemaforo.ROJO,  15);
     }

@@ -12,9 +12,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Servicio de Control de Semaforos - PC2
- */
 public class ServicioControlSemaforos {
 
     private String analiticaAddress;
@@ -186,7 +183,7 @@ public class ServicioControlSemaforos {
                         semaforo.cambiarEstadoVertical(nuevoEstado, tiempo);
                     }
                 } else {
-                    // Unknown orientation — fallback to previous heuristic
+
                     if (nuevoEstado == EstadoSemaforo.VERDE) {
                         if (semaforo.getEstadoHorizontal() == EstadoSemaforo.VERDE) {
                             semaforo.cambiarEstadoVertical(EstadoSemaforo.VERDE, tiempo);

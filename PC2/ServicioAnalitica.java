@@ -194,9 +194,6 @@ public class ServicioAnalitica {
 
             if (estadoAnterior != datos.estadoActual) {
                 int tiempoVerde = ReglasTrafico.obtenerTiempoSemaforo(datos.estadoActual);
-
-                // La orientación se resuelve por heurística, pero la congestión ya fue
-                // correlacionada antes: se requieren al menos 2 sensores críticos.
                 boolean camaraFlag = datos.cola >= 10;
                 boolean espiraFlag = datos.vehiculosContados >= 15;
                 boolean gpsFlag = datos.velocidadPromedio < 20 || datos.densidad >= 40 || "ALTA".equalsIgnoreCase(datos.nivelCongestion);
