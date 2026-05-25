@@ -9,6 +9,7 @@ public class ServicioAnalitica {
     private String brokerAddress;
     private String bdPrincipalAddress;
     private String bdReplicaAddress;
+    private String bdPrincipalRepAddress;
     private String semaforosAddress;
     private String controlAddress;
     private ZContext context;
@@ -43,6 +44,7 @@ public class ServicioAnalitica {
         this.bdReplicaAddress = bdReplicaAddress;
         this.semaforosAddress = semaforosAddress;
         this.controlAddress = controlAddress;
+        this.bdPrincipalRepAddress = null;
         this.datosIntersecciones = new HashMap<>();
         this.colaEventosPendientesPrimario = new LinkedBlockingQueue<>();
         this.persistirEnReplica = false;
@@ -377,7 +379,8 @@ public class ServicioAnalitica {
         Thread supervisor = new Thread(() -> {
             boolean ultimoEstadoDisponible = true;
             while (!Thread.currentThread().isInterrupted()) {
-                boolean principalViva = verificarDestino(bdPrincipalAddress, "BD_PRINCIPAL");
+                String saludAddr = bdPrincipalRepAddress != null ? bdPrincipalRepAddress : bdPrincipalAddress;
+                boolean principalViva = verificarDestino(saludAddr, "BD_PRINCIPAL");
                 principalDisponible = principalViva;
 
                 if (principalViva && !ultimoEstadoDisponible) {
@@ -502,6 +505,7 @@ public class ServicioAnalitica {
                 semaforosAddress,
                 controlAddress
             );
+            servicio.bdPrincipalRepAddress = "tcp://" + config.getPC3() + ":" + config.getBdPrincipalRep();
             servicio.iniciar();
         } catch (Exception e) {
             System.err.println("Error iniciando servicio: " + e.getMessage());
