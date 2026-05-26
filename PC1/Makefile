@@ -2,7 +2,7 @@ JARS = jeromq-0.5.3.jar
 CP = .:$(JARS)
 SOURCES = $(wildcard *.java)
 
-.PHONY: all check-jars compile run run-broker run-sensores run-all clean
+.PHONY: all check-jars compile run run-broker run-broker-multi run-sensores run-all run-all-multi clean
 
 all: run-all
 
@@ -16,6 +16,9 @@ run: run-sensores
 
 run-broker: compile
 	java -cp "$(CP)" BrokerZMQ
+
+run-broker-multi: compile
+	java -cp "$(CP)" BrokerZMQMultihilos
 
 run-sensores: compile
 	java -cp "$(CP)" PC1_SensoresMain
@@ -37,6 +40,25 @@ run-all:
 	fi; \
 	make compile; \
 	eval "$$TERM_OPEN 'cd \"$(CURDIR)\"; java -cp \".:jeromq-0.5.3.jar\" BrokerZMQ; exec bash'"; \
+	eval "$$TERM_OPEN 'cd \"$(CURDIR)\"; java -cp \".:jeromq-0.5.3.jar\" PC1_SensoresMain; exec bash'"
+
+run-all-multi:
+	@echo "Iniciando Broker multihilos y Sensores en terminales separadas..."
+	@TERM_OPEN=''; \
+	if command -v gnome-terminal >/dev/null 2>&1; then \
+		TERM_OPEN='gnome-terminal -- bash -lc'; \
+	elif command -v konsole >/dev/null 2>&1; then \
+		TERM_OPEN='konsole -e bash -lc'; \
+	elif command -v xfce4-terminal >/dev/null 2>&1; then \
+		TERM_OPEN='xfce4-terminal --hold -e bash -lc'; \
+	elif command -v xterm >/dev/null 2>&1; then \
+		TERM_OPEN='xterm -hold -e bash -lc'; \
+	else \
+		echo "ERROR: no se encontró emulador de terminal (gnome-terminal/konsole/xfce4-terminal/xterm)."; \
+		exit 1; \
+	fi; \
+	make compile; \
+	eval "$$TERM_OPEN 'cd \"$(CURDIR)\"; java -cp \".:jeromq-0.5.3.jar\" BrokerZMQMultihilos; exec bash'"; \
 	eval "$$TERM_OPEN 'cd \"$(CURDIR)\"; java -cp \".:jeromq-0.5.3.jar\" PC1_SensoresMain; exec bash'"
 
 clean:
