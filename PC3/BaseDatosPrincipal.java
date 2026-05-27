@@ -942,25 +942,54 @@ public class BaseDatosPrincipal {
         if (payload == null) {
             return "ERROR|Payload de backup vacio";
         }
-
-        try (Statement stmt = conexion.createStatement()) {
-            stmt.executeUpdate("DELETE FROM eventos");
-        }
-
-        int importados = 0;
+        int aplicados = 0;
         String[] lineas = payload.split("\\r?\\n");
-        for (String linea : lineas) {
-            String json = linea.trim();
-            if (json.isEmpty()) {
-                continue;
+
+        boolean previoAutoCommit = true;
+        try {
+            previoAutoCommit = conexion.getAutoCommit();
+            conexion.setAutoCommit(false);
+
+            for (String linea : lineas) {
+                String json = linea.trim();
+                if (json.isEmpty()) {
+                    continue;
+                }
+                try {
+                    if (insertarEventoDesdeJson(json)) {
+                        aplicados++;
+                    }
+                } catch (SQLException e) {
+                    String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+                    if (msg.contains("unique") || msg.contains("constraint")) {
+                        // evento ya presente: ignorar
+                        continue;
+                    } else {
+                        // otro error: log y continuar
+                        System.err.println("[BD PRINCIPAL] Error importando linea del snapshot: " + e.getMessage());
+                        continue;
+                    }
+                }
             }
-            if (insertarEventoDesdeJson(json)) {
-                importados++;
+
+            conexion.commit();
+        } catch (SQLException e) {
+            try {
+                conexion.rollback();
+            } catch (SQLException ex) {
+                System.err.println("[BD PRINCIPAL] Error al hacer rollback: " + ex.getMessage());
+            }
+            return "ERROR|Fallo al restaurar snapshot: " + e.getMessage();
+        } finally {
+            try {
+                conexion.setAutoCommit(previoAutoCommit);
+            } catch (SQLException ex) {
+                System.err.println("[BD PRINCIPAL] No se pudo restaurar autoCommit: " + ex.getMessage());
             }
         }
 
-        contadorEventos = importados;
-        return "OK|BACKUP_RESTORE|importados=" + importados;
+        contadorEventos += aplicados;
+        return "OK|BACKUP_RESTORE|aplicados=" + aplicados;
     }
 
     private String extraerCargaBackup(String solicitud) {
@@ -971,7 +1000,7 @@ public class BaseDatosPrincipal {
         return solicitud.substring(salto + 1);
     }
 
-    private boolean insertarEventoDesdeJson(String eventoJson) {
+    private boolean insertarEventoDesdeJson(String eventoJson) throws SQLException {
         String recibidoEn = LocalDateTime.now().format(DateTimeFormatter.ISO_DATE_TIME);
         String tipoEvento = extraerCampoTexto(eventoJson, "tipo_evento");
         String sensorId = extraerCampoTexto(eventoJson, "sensor_id");
@@ -990,26 +1019,22 @@ public class BaseDatosPrincipal {
             timestampEvento = timestampFin != null ? timestampFin : timestampInicio;
         }
 
-        try {
-            stmtInsertarEvento.setString(1, recibidoEn);
-            stmtInsertarEvento.setString(2, tipoEvento);
-            stmtInsertarEvento.setString(3, sensorId);
-            stmtInsertarEvento.setString(4, tipoSensor);
-            stmtInsertarEvento.setString(5, interseccion);
-            if (vehiculosContados != null) stmtInsertarEvento.setInt(6, vehiculosContados); else stmtInsertarEvento.setNull(6, java.sql.Types.INTEGER);
-            if (intervaloSegundos != null) stmtInsertarEvento.setInt(7, intervaloSegundos); else stmtInsertarEvento.setNull(7, java.sql.Types.INTEGER);
-            stmtInsertarEvento.setString(8, timestampInicio);
-            stmtInsertarEvento.setString(9, timestampFin);
-            if (volumen != null) stmtInsertarEvento.setInt(10, volumen); else stmtInsertarEvento.setNull(10, java.sql.Types.INTEGER);
-            if (velocidadPromedio != null) stmtInsertarEvento.setDouble(11, velocidadPromedio); else stmtInsertarEvento.setNull(11, java.sql.Types.REAL);
-            stmtInsertarEvento.setString(12, nivelCongestion);
-            stmtInsertarEvento.setString(13, timestampEvento);
-            stmtInsertarEvento.setString(14, eventoJson);
-            stmtInsertarEvento.executeUpdate();
-            return true;
-        } catch (SQLException e) {
-            return false;
-        }
+        stmtInsertarEvento.setString(1, recibidoEn);
+        stmtInsertarEvento.setString(2, tipoEvento);
+        stmtInsertarEvento.setString(3, sensorId);
+        stmtInsertarEvento.setString(4, tipoSensor);
+        stmtInsertarEvento.setString(5, interseccion);
+        if (vehiculosContados != null) stmtInsertarEvento.setInt(6, vehiculosContados); else stmtInsertarEvento.setNull(6, java.sql.Types.INTEGER);
+        if (intervaloSegundos != null) stmtInsertarEvento.setInt(7, intervaloSegundos); else stmtInsertarEvento.setNull(7, java.sql.Types.INTEGER);
+        stmtInsertarEvento.setString(8, timestampInicio);
+        stmtInsertarEvento.setString(9, timestampFin);
+        if (volumen != null) stmtInsertarEvento.setInt(10, volumen); else stmtInsertarEvento.setNull(10, java.sql.Types.INTEGER);
+        if (velocidadPromedio != null) stmtInsertarEvento.setDouble(11, velocidadPromedio); else stmtInsertarEvento.setNull(11, java.sql.Types.REAL);
+        stmtInsertarEvento.setString(12, nivelCongestion);
+        stmtInsertarEvento.setString(13, timestampEvento);
+        stmtInsertarEvento.setString(14, eventoJson);
+        stmtInsertarEvento.executeUpdate();
+        return true;
     }
 
     private String valorTexto(String valor) {
