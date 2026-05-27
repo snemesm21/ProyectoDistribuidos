@@ -936,6 +936,23 @@ public class BaseDatosReplica {
         return valor.isEmpty() ? null : valor;
     }
 
+    private String buscarCampoFlexible(String json, String campo) {
+        if (json == null || campo == null) return null;
+        try {
+            Pattern p1 = Pattern.compile("\"" + Pattern.quote(campo) + "\"\\s*:\\s*\"([^\"]*)\"");
+            Matcher m1 = p1.matcher(json);
+            if (m1.find()) return m1.group(1);
+
+            Pattern p2 = Pattern.compile("\\\\\"" + Pattern.quote(campo) + "\\\\\"\\s*:\\s*\\\\\"([^\\\\\"]*)\\\\\"");
+            Matcher m2 = p2.matcher(json);
+            if (m2.find()) return m2.group(1).replaceAll("\\\\\\\\", "\\\\");
+
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private void cerrarRecursosBD() {
         cerrarSilencioso(stmtEventosPorRango);
         cerrarSilencioso(stmtUltimosEventos);
