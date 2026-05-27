@@ -64,6 +64,7 @@ public class BaseDatosReplica {
             inicializarBaseDatos();
             prepararConsultasMonitoreo();
             probarConexionMonitoreo();
+            reconstruirCamposExistentes();
             iniciarServidorConsultas();
         } catch (Exception e) {
             System.err.println("[ERROR BD RÉPLICA] Inicializando SQLite: " + e.getMessage());
@@ -202,6 +203,73 @@ public class BaseDatosReplica {
         }
     }
 
+    private void reconstruirCamposExistentes() {
+        String sqlSelect = "SELECT id, json_raw FROM eventos WHERE json_raw IS NOT NULL";
+        String sqlUpdate =
+            "UPDATE eventos SET " +
+            "tipo_evento = COALESCE(?, tipo_evento), " +
+            "sensor_id = COALESCE(?, sensor_id), " +
+            "tipo_sensor = COALESCE(?, tipo_sensor), " +
+            "interseccion = COALESCE(?, interseccion), " +
+            "vehiculos_contados = COALESCE(?, vehiculos_contados), " +
+            "intervalo_segundos = COALESCE(?, intervalo_segundos), " +
+            "timestamp_inicio = COALESCE(?, timestamp_inicio), " +
+            "timestamp_fin = COALESCE(?, timestamp_fin), " +
+            "volumen = COALESCE(?, volumen), " +
+            "velocidad_promedio = COALESCE(?, velocidad_promedio), " +
+            "nivel_congestion = COALESCE(?, nivel_congestion), " +
+            "timestamp_evento = COALESCE(?, timestamp_evento), " +
+            "json_raw = COALESCE(?, json_raw) " +
+            "WHERE id = ?";
+
+        int actualizados = 0;
+        try (Statement stmt = conexion.createStatement();
+             ResultSet rs = stmt.executeQuery(sqlSelect);
+             PreparedStatement upd = conexion.prepareStatement(sqlUpdate)) {
+            while (rs.next()) {
+                int id = rs.getInt("id");
+                String jsonLimpio = normalizarJsonEntrante(rs.getString("json_raw"));
+                String tipoEvento = extraerTipoEventoMensaje(rs.getString("json_raw"));
+                if (tipoEvento == null) {
+                    tipoEvento = extraerCampoTexto(jsonLimpio, "tipo_evento");
+                }
+                String sensorId = extraerCampoTexto(jsonLimpio, "sensor_id");
+                String tipoSensor = extraerCampoTexto(jsonLimpio, "tipo_sensor");
+                String interseccion = extraerCampoTexto(jsonLimpio, "interseccion");
+                Integer vehiculosContados = extraerCampoEntero(jsonLimpio, "vehiculos_contados");
+                Integer intervaloSegundos = extraerCampoEntero(jsonLimpio, "intervalo_segundos");
+                String timestampInicio = extraerCampoTexto(jsonLimpio, "timestamp_inicio");
+                String timestampFin = extraerCampoTexto(jsonLimpio, "timestamp_fin");
+                Integer volumen = extraerCampoEntero(jsonLimpio, "volumen");
+                Double velocidadPromedio = extraerCampoDecimal(jsonLimpio, "velocidad_promedio");
+                String nivelCongestion = extraerCampoTexto(jsonLimpio, "nivel_congestion");
+                String timestampEvento = extraerCampoTexto(jsonLimpio, "timestamp");
+
+                upd.setString(1, tipoEvento);
+                upd.setString(2, sensorId);
+                upd.setString(3, tipoSensor);
+                upd.setString(4, interseccion);
+                if (vehiculosContados != null) upd.setInt(5, vehiculosContados); else upd.setNull(5, java.sql.Types.INTEGER);
+                if (intervaloSegundos != null) upd.setInt(6, intervaloSegundos); else upd.setNull(6, java.sql.Types.INTEGER);
+                upd.setString(7, timestampInicio);
+                upd.setString(8, timestampFin);
+                if (volumen != null) upd.setInt(9, volumen); else upd.setNull(9, java.sql.Types.INTEGER);
+                if (velocidadPromedio != null) upd.setDouble(10, velocidadPromedio); else upd.setNull(10, java.sql.Types.REAL);
+                upd.setString(11, nivelCongestion);
+                upd.setString(12, timestampEvento != null ? timestampEvento : (timestampFin != null ? timestampFin : timestampInicio));
+                upd.setString(13, jsonLimpio);
+                upd.setInt(14, id);
+                actualizados += upd.executeUpdate();
+            }
+        } catch (SQLException e) {
+            System.err.println("[BD RÉPLICA] No se pudo reconstruir datos existentes: " + e.getMessage());
+        }
+
+        if (actualizados > 0) {
+            System.out.println("[BD RÉPLICA] Campos reconstruidos en " + actualizados + " eventos existentes");
+        }
+    }
+
     private synchronized void almacenarEventoEnSQLite(String eventoJson) {
         try {
             Configuracion conf = Configuracion.getInstance();
@@ -216,23 +284,25 @@ public class BaseDatosReplica {
 
         contadorEventos++;
         String recibidoEn = LocalDateTime.now().format(DateTimeFormatter.ISO_DATE_TIME);
-        String tipoEvento = extraerCampoTexto(eventoJson, "tipo_evento");
-        String sensorId = extraerCampoTexto(eventoJson, "sensor_id");
-        String tipoSensor = extraerCampoTexto(eventoJson, "tipo_sensor");
-        String interseccion = extraerCampoTexto(eventoJson, "interseccion");
+        String tipoEventoMensaje = extraerTipoEventoMensaje(eventoJson);
+        String jsonLimpio = normalizarJsonEntrante(eventoJson);
 
+        String tipoEvento = tipoEventoMensaje != null ? tipoEventoMensaje : extraerCampoTexto(jsonLimpio, "tipo_evento");
+        String sensorId = extraerCampoTexto(jsonLimpio, "sensor_id");
+        String tipoSensor = extraerCampoTexto(jsonLimpio, "tipo_sensor");
+        String interseccion = extraerCampoTexto(jsonLimpio, "interseccion");
 
-        if (sensorId == null) sensorId = buscarCampoFlexible(eventoJson, "sensor_id");
-        if (tipoSensor == null) tipoSensor = buscarCampoFlexible(eventoJson, "tipo_sensor");
-        if (interseccion == null) interseccion = buscarCampoFlexible(eventoJson, "interseccion");
-        Integer vehiculosContados = extraerCampoEntero(eventoJson, "vehiculos_contados");
-        Integer intervaloSegundos = extraerCampoEntero(eventoJson, "intervalo_segundos");
-        String timestampInicio = extraerCampoTexto(eventoJson, "timestamp_inicio");
-        String timestampFin = extraerCampoTexto(eventoJson, "timestamp_fin");
-        Integer volumen = extraerCampoEntero(eventoJson, "volumen");
-        Double velocidadPromedio = extraerCampoDecimal(eventoJson, "velocidad_promedio");
-        String nivelCongestion = extraerCampoTexto(eventoJson, "nivel_congestion");
-        String timestampEvento = extraerCampoTexto(eventoJson, "timestamp");
+        if (sensorId == null) sensorId = buscarCampoFlexible(jsonLimpio, "sensor_id");
+        if (tipoSensor == null) tipoSensor = buscarCampoFlexible(jsonLimpio, "tipo_sensor");
+        if (interseccion == null) interseccion = buscarCampoFlexible(jsonLimpio, "interseccion");
+        Integer vehiculosContados = extraerCampoEntero(jsonLimpio, "vehiculos_contados");
+        Integer intervaloSegundos = extraerCampoEntero(jsonLimpio, "intervalo_segundos");
+        String timestampInicio = extraerCampoTexto(jsonLimpio, "timestamp_inicio");
+        String timestampFin = extraerCampoTexto(jsonLimpio, "timestamp_fin");
+        Integer volumen = extraerCampoEntero(jsonLimpio, "volumen");
+        Double velocidadPromedio = extraerCampoDecimal(jsonLimpio, "velocidad_promedio");
+        String nivelCongestion = extraerCampoTexto(jsonLimpio, "nivel_congestion");
+        String timestampEvento = extraerCampoTexto(jsonLimpio, "timestamp");
 
         if (timestampEvento == null) {
             timestampEvento = timestampFin != null ? timestampFin : timestampInicio;
@@ -268,25 +338,27 @@ public class BaseDatosReplica {
             }
             stmtInsertarEvento.setString(12, nivelCongestion);
             stmtInsertarEvento.setString(13, timestampEvento);
-            stmtInsertarEvento.setString(14, eventoJson);
+            stmtInsertarEvento.setString(14, jsonLimpio);
             stmtInsertarEvento.executeUpdate();
-            String detalles = "";
-            if ("camara".equalsIgnoreCase(tipoSensor)) {
-                detalles = "Q=" + (volumen != null ? volumen : "N/A") + " veh";
-            } else if ("espira_inductiva".equalsIgnoreCase(tipoSensor)) {
-                detalles = "Cv=" + (vehiculosContados != null ? vehiculosContados : "N/A") + " veh/" + 
-                          (intervaloSegundos != null ? intervaloSegundos : "?") + "s";
-            } else if ("gps".equalsIgnoreCase(tipoSensor)) {
-                detalles = "Vp=" + (velocidadPromedio != null ? String.format("%.1f", velocidadPromedio) : "N/A") + 
-                          " km/h | Nivel=" + (nivelCongestion != null ? nivelCongestion : "N/A");
-            }
-            
-            String tipoSensorPrint = tipoSensor != null ? tipoSensor.toUpperCase() : "???";
-            String interPrint = interseccion != null ? interseccion : "?";
-            System.out.println("[BD RÉPLICA] Evento #" + contadorEventos + " | " + tipoSensorPrint + " | INT-" + interPrint + " | " + detalles);
         } catch (SQLException e) {
             System.err.println("[ERROR BD RÉPLICA] Insertando evento en SQLite: " + e.getMessage());
+            return;
         }
+
+        String detalles = "";
+        if ("camara".equalsIgnoreCase(tipoSensor)) {
+            detalles = "Q=" + (volumen != null ? volumen : "N/A") + " veh";
+        } else if ("espira_inductiva".equalsIgnoreCase(tipoSensor)) {
+            detalles = "Cv=" + (vehiculosContados != null ? vehiculosContados : "N/A") + " veh/" + 
+                      (intervaloSegundos != null ? intervaloSegundos : "?") + "s";
+        } else if ("gps".equalsIgnoreCase(tipoSensor)) {
+            detalles = "Vp=" + (velocidadPromedio != null ? String.format("%.1f", velocidadPromedio) : "N/A") + 
+                      " km/h | Nivel=" + (nivelCongestion != null ? nivelCongestion : "N/A");
+        }
+
+        String tipoSensorPrint = tipoSensor != null ? tipoSensor.toUpperCase() : "???";
+        String interPrint = interseccion != null ? interseccion : "?";
+        System.out.println("[BD RÉPLICA] Evento #" + contadorEventos + " | " + tipoSensorPrint + " | INT-" + interPrint + " | " + detalles);
 
         if (contadorEventos % 10 == 0) {
             System.out.println("[BD RÉPLICA] " + contadorEventos + " eventos persistidos\n");
@@ -954,6 +1026,31 @@ public class BaseDatosReplica {
             return String.format("%.2f", ((Number) valor).doubleValue());
         }
         return valor.toString();
+    }
+
+    private String extraerTipoEventoMensaje(String evento) {
+        if (evento == null) {
+            return null;
+        }
+        String limpio = evento.trim();
+        int espacio = limpio.indexOf(' ');
+        if (espacio <= 0) {
+            return null;
+        }
+        return limpio.substring(0, espacio).trim().toUpperCase();
+    }
+
+    private String normalizarJsonEntrante(String evento) {
+        if (evento == null) {
+            return null;
+        }
+        String limpio = evento.trim();
+        int inicioJson = limpio.indexOf('{');
+        if (inicioJson >= 0) {
+            limpio = limpio.substring(inicioJson).trim();
+        }
+        limpio = HmacUtil.stripSignatureFromJson(limpio);
+        return limpio != null ? limpio.trim() : null;
     }
 
     private String extraerCampoTexto(String json, String campo) {
