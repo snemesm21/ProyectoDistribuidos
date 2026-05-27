@@ -131,8 +131,17 @@ public class BaseDatosReplica {
     private void inicializarBaseDatos() throws SQLException, ClassNotFoundException {
         Class.forName("org.sqlite.JDBC");
         conexion = DriverManager.getConnection("jdbc:sqlite:" + archivoDB);
-
+        
         try (Statement stmt = conexion.createStatement()) {
+            try {
+                stmt.execute("PRAGMA journal_mode = WAL");
+            } catch (SQLException ignore) {
+            }
+            try {
+                stmt.execute("PRAGMA busy_timeout = 5000");
+            } catch (SQLException ignore) {
+            }
+
             stmt.execute(SQL_CREAR_TABLA_EVENTOS);
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_eventos_interseccion ON eventos(interseccion)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_eventos_tipo ON eventos(tipo_evento)");
@@ -222,8 +231,6 @@ public class BaseDatosReplica {
             stmtInsertarEvento.setString(13, timestampEvento);
             stmtInsertarEvento.setString(14, eventoJson);
             stmtInsertarEvento.executeUpdate();
-
-            // Imprimir detalles del registro guardado según tipo de sensor
             String detalles = "";
             if ("camara".equalsIgnoreCase(tipoSensor)) {
                 detalles = "Q=" + (volumen != null ? volumen : "N/A") + " veh";
@@ -272,10 +279,53 @@ public class BaseDatosReplica {
                     }
                     return consultarInterseccion(partes[1]);
                 case "HISTORICO":
-                    if (partes.length < 3) {
-                        return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                    if (partes.length >= 4) {
+                        return consultarHistorico(partes[1], partes[2], partes[3]);
                     }
-                    return consultarHistorico(partes[1], partes[2]);
+                    if (partes.length >= 3) {
+                        return consultarHistorico(null, partes[1], partes[2]);
+                    }
+                    return "ERROR|Debe indicar interseccion y rango de tiempo";
+                case "CAMBIOS_ESTADO":
+                    if (partes.length >= 4) {
+                        return consultarCambiosEstado(partes[1], partes[2], partes[3]);
+                    }
+                    return "ERROR|Debe indicar interseccion y rango de tiempo";
+                case "PRIORIZACION":
+                    if (partes.length >= 4) {
+                        return consultarPriorizacion(partes[1], partes[2], partes[3]);
+                    }
+                    return "ERROR|Debe indicar interseccion y rango de tiempo";
+                case "CONGESTION":
+                    if (partes.length >= 3) {
+                        return consultarEstadisticasCongestion(partes[1], partes[2]);
+                    }
+                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                case "VELOCIDAD_PROMEDIO":
+                    if (partes.length < 2) {
+                        return "ERROR|Debe indicar la interseccion";
+                    }
+                    return consultarVelocidadPromedioHistorica(partes[1]);
+                case "EVENTOS_RANGO":
+                    if (partes.length >= 3) {
+                        return consultarEventosRango(partes[1], partes[2]);
+                    }
+                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                case "TASA_ALMACENAMIENTO":
+                    if (partes.length >= 3) {
+                        return consultarTasaAlmacenamiento(partes[1], partes[2]);
+                    }
+                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                case "LATENCIA_PROMEDIO":
+                    if (partes.length >= 3) {
+                        return consultarLatenciaPromedio(partes[1], partes[2]);
+                    }
+                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                case "LATENCIA_ESTADISTICAS":
+                    if (partes.length >= 3) {
+                        return consultarLatenciaEstadisticas(partes[1], partes[2]);
+                    }
+                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
                 case "ULTIMOS":
                     int limite = 10;
                     if (partes.length >= 2) {
@@ -283,7 +333,7 @@ public class BaseDatosReplica {
                     }
                     return consultarUltimosEventos(limite);
                 case "AYUDA":
-                    return "OK|Comandos: ESTADO, INTERSECCION <INT-X>, HISTORICO <inicio> <fin>, ULTIMOS <n>";
+                    return "OK|Comandos: ESTADO, INTERSECCION <INT-X>, HISTORICO <INT-X?> <inicio> <fin>, CAMBIOS_ESTADO <INT-X> <inicio> <fin>, PRIORIZACION <INT-X> <inicio> <fin>, CONGESTION <inicio> <fin>, VELOCIDAD_PROMEDIO <INT-X>, EVENTOS_RANGO <inicio> <fin>, TASA_ALMACENAMIENTO <inicio> <fin>, LATENCIA_PROMEDIO <inicio> <fin>, LATENCIA_ESTADISTICAS <inicio> <fin>, ULTIMOS <n>";
                 default:
                     return "ERROR|Comando desconocido: " + comando;
             }
@@ -338,40 +388,120 @@ public class BaseDatosReplica {
     }
 
     private String consultarInterseccion(String interseccion) throws SQLException {
-        int totalEventos = 0;
-        Double velocidadPromedio = null;
+        Integer q = null;
+        Integer cv = null;
+        Double vp = null;
+        Double d = null;
+        String congestion = "N/A";
+        String estadoTrafico = "N/A";
+        String orientacion = "N/A";
+        String timestampEstado = "N/A";
 
-        stmtEventosPorInterseccion.setString(1, interseccion);
-        try (ResultSet rs = stmtEventosPorInterseccion.executeQuery()) {
-            if (rs.next()) {
-                totalEventos = rs.getInt(1);
-            }
-        }
-
-        stmtVelocidadPromedioPorInterseccion.setString(1, interseccion);
-        try (ResultSet rs = stmtVelocidadPromedioPorInterseccion.executeQuery()) {
-            if (rs.next()) {
-                double valor = rs.getDouble(1);
-                if (!rs.wasNull()) {
-                    velocidadPromedio = valor;
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT volumen, velocidad_promedio, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'camara' ORDER BY id DESC LIMIT 1"
+             )) {
+            stmt.setString(1, interseccion);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    q = rs.getObject("volumen") != null ? rs.getInt("volumen") : null;
+                    vp = rs.getObject("velocidad_promedio") != null ? rs.getDouble("velocidad_promedio") : null;
                 }
             }
         }
 
-        StringBuilder ultimos = new StringBuilder();
         try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT id, tipo_evento, tipo_sensor, timestamp_evento, volumen, vehiculos_contados, velocidad_promedio, nivel_congestion " +
-                 "FROM eventos WHERE interseccion = ? ORDER BY id DESC LIMIT 5"
+                 "SELECT vehiculos_contados, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'espira_inductiva' ORDER BY id DESC LIMIT 1"
              )) {
             stmt.setString(1, interseccion);
             try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    if (ultimos.length() > 0) {
-                        ultimos.append('\n');
+                if (rs.next()) {
+                    cv = rs.getObject("vehiculos_contados") != null ? rs.getInt("vehiculos_contados") : null;
+                }
+            }
+        }
+
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT velocidad_promedio, nivel_congestion, json_raw, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'gps' ORDER BY id DESC LIMIT 1"
+             )) {
+            stmt.setString(1, interseccion);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    vp = rs.getObject("velocidad_promedio") != null ? rs.getDouble("velocidad_promedio") : vp;
+                    d = extraerCampoDecimal(rs.getString("json_raw"), "densidad");
+                    congestion = valorTexto(rs.getString("nivel_congestion"));
+                }
+            }
+        }
+
+        String jsonEstado = null;
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT json_raw, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION') ORDER BY id DESC LIMIT 1"
+             )) {
+            stmt.setString(1, interseccion);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    jsonEstado = rs.getString("json_raw");
+                    String estadoNuevo = jsonEstado != null ? extraerCampoTexto(jsonEstado, "estado_nuevo") : null;
+                    estadoTrafico = valorTexto(estadoNuevo);
+                    if ("N/A".equals(estadoTrafico)) {
+                        String tipoEvento = jsonEstado != null ? extraerCampoTexto(jsonEstado, "tipo_evento") : null;
+                        estadoTrafico = valorTexto(tipoEvento);
                     }
-                    ultimos.append("- #").append(rs.getInt("id"))
+                    orientacion = valorTexto(jsonEstado != null ? extraerCampoTexto(jsonEstado, "orientacion") : null);
+                    timestampEstado = valorTexto(rs.getString("timestamp_evento"));
+                }
+            }
+        }
+
+        String ejeVerde = "N/A";
+        if (!"N/A".equalsIgnoreCase(orientacion)) {
+            ejeVerde = orientacion;
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=INTERSECCION\n")
+            .append("INTERSECCION=").append(interseccion).append('\n')
+            .append("Q=").append(valorNumerico(q)).append('\n')
+            .append("Cv=").append(valorNumerico(cv)).append('\n')
+            .append("Vp=").append(valorDecimal(vp)).append('\n')
+            .append("D=").append(valorDecimal(d)).append('\n')
+            .append("CONGESTION=").append(congestion).append('\n')
+            .append("ESTADO_TRAFICO=").append(estadoTrafico).append('\n')
+            .append("SEMAFORO_VERDE=").append(ejeVerde).append('\n')
+            .append("ULTIMO_CAMBIO=").append(timestampEstado)
+            .toString();
+    }
+
+    private String consultarHistorico(String fechaInicio, String fechaFin) throws SQLException {
+        return consultarHistorico(null, fechaInicio, fechaFin);
+    }
+
+    private String consultarHistorico(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
+        StringBuilder eventos = new StringBuilder();
+        int totalEventos = 0;
+        String sql = "SELECT id, tipo_evento, tipo_sensor, interseccion, timestamp_evento, volumen, vehiculos_contados, velocidad_promedio, nivel_congestion FROM eventos WHERE timestamp_evento BETWEEN ? AND ?";
+        if (interseccion != null && !interseccion.isBlank()) {
+            sql += " AND interseccion = ?";
+        }
+        sql += " AND tipo_evento IN ('CAMARA', 'ESPIRA', 'GPS') ORDER BY timestamp_evento DESC LIMIT 50";
+
+        try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            if (interseccion != null && !interseccion.isBlank()) {
+                stmt.setString(3, interseccion);
+            }
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    totalEventos++;
+                    if (eventos.length() > 0) {
+                        eventos.append('\n');
+                    }
+                    eventos.append("- #").append(rs.getInt("id"))
                         .append(" | ").append(valorTexto(rs.getString("tipo_sensor")))
                         .append(" | ").append(valorTexto(rs.getString("tipo_evento")))
+                        .append(" | ").append(valorTexto(rs.getString("interseccion")))
                         .append(" | ts=").append(valorTexto(rs.getString("timestamp_evento")))
                         .append(" | Q=").append(valorNumerico(rs.getObject("volumen")))
                         .append(" | Cv=").append(valorNumerico(rs.getObject("vehiculos_contados")))
@@ -383,49 +513,291 @@ public class BaseDatosReplica {
 
         return new StringBuilder()
             .append("OK\n")
-            .append("CONSULTA=INTERSECCION\n")
-            .append("INTERSECCION=").append(interseccion).append('\n')
-            .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
-            .append("VELOCIDAD_PROMEDIO=").append(velocidadPromedio != null ? String.format("%.2f", velocidadPromedio) : "N/A").append('\n')
-            .append("ULTIMOS_EVENTOS=\n")
-            .append(ultimos.length() == 0 ? "- sin eventos" : ultimos)
-            .toString();
-    }
-
-    private String consultarHistorico(String fechaInicio, String fechaFin) throws SQLException {
-        int totalEventos = 0;
-        StringBuilder eventos = new StringBuilder();
-
-        try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT id, tipo_evento, tipo_sensor, interseccion, timestamp_evento FROM eventos " +
-                 "WHERE timestamp_evento BETWEEN ? AND ? ORDER BY timestamp_evento DESC LIMIT 20"
-             )) {
-            stmt.setString(1, fechaInicio);
-            stmt.setString(2, fechaFin);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    totalEventos++;
-                    if (eventos.length() > 0) {
-                        eventos.append('\n');
-                    }
-                    eventos.append("- #").append(rs.getInt("id"))
-                        .append(" | ").append(valorTexto(rs.getString("tipo_sensor")))
-                        .append(" | ").append(valorTexto(rs.getString("tipo_evento")))
-                        .append(" | ").append(valorTexto(rs.getString("interseccion")))
-                        .append(" | ts=").append(valorTexto(rs.getString("timestamp_evento")));
-                }
-            }
-        }
-
-        return new StringBuilder()
-            .append("OK\n")
             .append("CONSULTA=HISTORICO\n")
+            .append("INTERSECCION=").append(interseccion != null && !interseccion.isBlank() ? interseccion : "TODAS").append('\n')
             .append("DESDE=").append(fechaInicio).append('\n')
             .append("HASTA=").append(fechaFin).append('\n')
             .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
             .append("EVENTOS=\n")
             .append(eventos.length() == 0 ? "- sin eventos en el rango" : eventos)
             .toString();
+    }
+
+    private String consultarCambiosEstado(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
+        StringBuilder eventos = new StringBuilder();
+        int totalEventos = 0;
+        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' AND timestamp_evento BETWEEN ? AND ?";
+        if (interseccion != null && !interseccion.isBlank()) {
+            sql += " AND interseccion = ?";
+        }
+        sql += " ORDER BY id DESC";
+
+        try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            if (interseccion != null && !interseccion.isBlank()) {
+                stmt.setString(3, interseccion);
+            }
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    totalEventos++;
+                    String json = rs.getString("json_raw");
+                    if (eventos.length() > 0) {
+                        eventos.append('\n');
+                    }
+                    eventos.append("- ts=").append(valorTexto(rs.getString("timestamp_evento")))
+                        .append(" | INT=").append(valorTexto(extraerCampoTexto(json, "interseccion")))
+                        .append(" | ANTERIOR=").append(valorTexto(extraerCampoTexto(json, "estado_anterior")))
+                        .append(" | NUEVO=").append(valorTexto(extraerCampoTexto(json, "estado_nuevo")))
+                        .append(" | Q=").append(valorTexto(extraerCampoTexto(json, "q")))
+                        .append(" | Cv=").append(valorTexto(extraerCampoTexto(json, "cv")))
+                        .append(" | Vp=").append(valorTexto(extraerCampoTexto(json, "vp")))
+                        .append(" | D=").append(valorTexto(extraerCampoTexto(json, "d")))
+                        .append(" | Nivel=").append(valorTexto(extraerCampoTexto(json, "nivel_congestion")))
+                        .append(" | Orientacion=").append(valorTexto(extraerCampoTexto(json, "orientacion")));
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=CAMBIOS_ESTADO\n")
+            .append("INTERSECCION=").append(interseccion != null && !interseccion.isBlank() ? interseccion : "TODAS").append('\n')
+            .append("DESDE=").append(fechaInicio).append('\n')
+            .append("HASTA=").append(fechaFin).append('\n')
+            .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
+            .append("EVENTOS=\n")
+            .append(eventos.length() == 0 ? "- sin cambios de estado en el rango" : eventos)
+            .toString();
+    }
+
+    private String consultarPriorizacion(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
+        StringBuilder eventos = new StringBuilder();
+        int totalEventos = 0;
+        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'PRIORIZACION' AND timestamp_evento BETWEEN ? AND ?";
+        if (interseccion != null && !interseccion.isBlank()) {
+            sql += " AND interseccion = ?";
+        }
+        sql += " ORDER BY id DESC";
+
+        try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            if (interseccion != null && !interseccion.isBlank()) {
+                stmt.setString(3, interseccion);
+            }
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    totalEventos++;
+                    String json = rs.getString("json_raw");
+                    if (eventos.length() > 0) {
+                        eventos.append('\n');
+                    }
+                    eventos.append("- ts=").append(valorTexto(rs.getString("timestamp_evento")))
+                        .append(" | INT=").append(valorTexto(extraerCampoTexto(json, "interseccion")))
+                        .append(" | DURACION=").append(valorTexto(extraerCampoTexto(json, "duracion_verde"))).append('s')
+                        .append(" | CAUSA=").append(valorTexto(extraerCampoTexto(json, "causa")))
+                        .append(" | MOTIVO=").append(valorTexto(extraerCampoTexto(json, "motivo")))
+                        .append(" | ORIENTACION=").append(valorTexto(extraerCampoTexto(json, "orientacion")));
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=PRIORIZACION\n")
+            .append("INTERSECCION=").append(interseccion != null && !interseccion.isBlank() ? interseccion : "TODAS").append('\n')
+            .append("DESDE=").append(fechaInicio).append('\n')
+            .append("HASTA=").append(fechaFin).append('\n')
+            .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
+            .append("EVENTOS=\n")
+            .append(eventos.length() == 0 ? "- sin priorizaciones en el rango" : eventos)
+            .toString();
+    }
+
+    private String consultarEstadisticasCongestion(String fechaInicio, String fechaFin) throws SQLException {
+        StringBuilder resumen = new StringBuilder();
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT interseccion, COUNT(*) AS total FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' AND timestamp_evento BETWEEN ? AND ? AND json_raw LIKE '%\"estado_nuevo\":\"CONGESTION\"%' GROUP BY interseccion ORDER BY total DESC, interseccion ASC"
+             )) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    if (resumen.length() > 0) {
+                        resumen.append('\n');
+                    }
+                    resumen.append("- ").append(valorTexto(rs.getString("interseccion")))
+                        .append(" | TRANSICIONES_CONGESTION=").append(rs.getInt("total"));
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=CONGESTION\n")
+            .append("DESDE=").append(fechaInicio).append('\n')
+            .append("HASTA=").append(fechaFin).append('\n')
+            .append("RESULTADOS=\n")
+            .append(resumen.length() == 0 ? "- sin transiciones a congestión en el rango" : resumen)
+            .toString();
+    }
+
+    private String consultarVelocidadPromedioHistorica(String interseccion) throws SQLException {
+        Double velocidadPromedio = null;
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT AVG(velocidad_promedio) FROM eventos WHERE interseccion = ? AND tipo_sensor = 'gps' AND velocidad_promedio IS NOT NULL"
+             )) {
+            stmt.setString(1, interseccion);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    double valor = rs.getDouble(1);
+                    if (!rs.wasNull()) {
+                        velocidadPromedio = valor;
+                    }
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=VELOCIDAD_PROMEDIO\n")
+            .append("INTERSECCION=").append(interseccion).append('\n')
+            .append("VELOCIDAD_PROMEDIO=").append(velocidadPromedio != null ? String.format("%.2f", velocidadPromedio) : "N/A")
+            .toString();
+    }
+
+    private String consultarEventosRango(String fechaInicio, String fechaFin) throws SQLException {
+        int totalEventos = 0;
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT COUNT(*) FROM eventos WHERE timestamp_evento BETWEEN ? AND ?"
+             )) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    totalEventos = rs.getInt(1);
+                }
+            }
+        }
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=EVENTOS_RANGO\n")
+            .append("DESDE=").append(fechaInicio).append('\n')
+            .append("HASTA=").append(fechaFin).append('\n')
+            .append("TOTAL_EVENTOS=").append(totalEventos)
+            .toString();
+    }
+
+    private String consultarTasaAlmacenamiento(String fechaInicio, String fechaFin) throws SQLException {
+        int totalEventos = 0;
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT COUNT(*) FROM eventos WHERE timestamp_evento BETWEEN ? AND ?"
+             )) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    totalEventos = rs.getInt(1);
+                }
+            }
+        }
+
+        long segundos = calcularDuracionSegundos(fechaInicio, fechaFin);
+        double tasa = segundos > 0 ? (double) totalEventos / (double) segundos : 0.0;
+
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=TASA_ALMACENAMIENTO\n")
+            .append("DESDE=").append(fechaInicio).append('\n')
+            .append("HASTA=").append(fechaFin).append('\n')
+            .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
+            .append("SEGUNDOS=").append(segundos).append('\n')
+            .append("TASA_POR_SEGUNDO=").append(String.format("%.4f", tasa))
+            .toString();
+    }
+
+    private String consultarLatenciaPromedio(String fechaInicio, String fechaFin) throws SQLException {
+        long total = 0L;
+        long suma = 0L;
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT json_raw FROM eventos WHERE timestamp_evento BETWEEN ? AND ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION')"
+             )) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Integer latencia = extraerCampoEntero(rs.getString("json_raw"), "latencia_ms");
+                    if (latencia != null) {
+                        suma += latencia;
+                        total++;
+                    }
+                }
+            }
+        }
+
+        double promedio = total > 0 ? (double) suma / (double) total : 0.0;
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=LATENCIA_PROMEDIO\n")
+            .append("DESDE=").append(fechaInicio).append('\n')
+            .append("HASTA=").append(fechaFin).append('\n')
+            .append("MUESTRAS=").append(total).append('\n')
+            .append("LATENCIA_PROMEDIO_MS=").append(String.format("%.2f", promedio))
+            .toString();
+    }
+
+    private String consultarLatenciaEstadisticas(String fechaInicio, String fechaFin) throws SQLException {
+        long total = 0L;
+        long suma = 0L;
+        Long minimo = null;
+        Long maximo = null;
+        try (PreparedStatement stmt = conexion.prepareStatement(
+                 "SELECT json_raw FROM eventos WHERE timestamp_evento BETWEEN ? AND ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION')"
+             )) {
+            stmt.setString(1, fechaInicio);
+            stmt.setString(2, fechaFin);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Integer latencia = extraerCampoEntero(rs.getString("json_raw"), "latencia_ms");
+                    if (latencia != null) {
+                        long valor = latencia.longValue();
+                        suma += valor;
+                        total++;
+                        if (minimo == null || valor < minimo) {
+                            minimo = valor;
+                        }
+                        if (maximo == null || valor > maximo) {
+                            maximo = valor;
+                        }
+                    }
+                }
+            }
+        }
+
+        double promedio = total > 0 ? (double) suma / (double) total : 0.0;
+        return new StringBuilder()
+            .append("OK\n")
+            .append("CONSULTA=LATENCIA_ESTADISTICAS\n")
+            .append("DESDE=").append(fechaInicio).append('\n')
+            .append("HASTA=").append(fechaFin).append('\n')
+            .append("MUESTRAS=").append(total).append('\n')
+            .append("LATENCIA_MIN_MS=").append(minimo != null ? minimo : 0).append('\n')
+            .append("LATENCIA_MAX_MS=").append(maximo != null ? maximo : 0).append('\n')
+            .append("LATENCIA_PROMEDIO_MS=").append(String.format("%.2f", promedio))
+            .toString();
+    }
+
+    private long calcularDuracionSegundos(String fechaInicio, String fechaFin) {
+        try {
+            java.time.LocalDateTime inicio = java.time.LocalDateTime.parse(fechaInicio, java.time.format.DateTimeFormatter.ISO_DATE_TIME);
+            java.time.LocalDateTime fin = java.time.LocalDateTime.parse(fechaFin, java.time.format.DateTimeFormatter.ISO_DATE_TIME);
+            long segundos = java.time.Duration.between(inicio, fin).getSeconds();
+            return Math.max(0L, segundos);
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     private String consultarUltimosEventos(int limite) throws SQLException {

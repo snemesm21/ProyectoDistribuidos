@@ -3,6 +3,8 @@ import org.zeromq.ZContext;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 public class ServicioAnalitica {
@@ -111,7 +113,7 @@ public class ServicioAnalitica {
 
                     if (poller.pollin(1)) {
                         String solicitud = controlRep.recvStr(0);
-                        String respuesta = procesarComandoManual(solicitud, publisherSemaforos);
+                        String respuesta = procesarComandoManual(solicitud, publisherSemaforos, pusherBDPrincipal, pusherBDReplica);
                         controlRep.send(respuesta.getBytes(ZMQ.CHARSET), 0);
                     }
 
@@ -141,17 +143,25 @@ public class ServicioAnalitica {
             String tipo = partes[0];
             String jsonEvento = partes[1];
 
-            almacenarEvento(jsonEvento, bdPrincipal, bdReplica);
-            
             String interseccion = extraerCampo(jsonEvento, "interseccion");
+            String sensorIdForLog = extraerCampo(jsonEvento, "sensor_id");
             if (interseccion.isEmpty()) {
-                interseccion = extraerInterseccionDesdeSensorId(extraerCampo(jsonEvento, "sensor_id"));
+                interseccion = extraerInterseccionDesdeSensorId(sensorIdForLog);
             }
+
+            // Validar que la intersección esté dentro de la cuadrícula configurada
+            if (!validarInterseccionValida(interseccion)) {
+                System.err.println("[ANALÍTICA] Evento recibido para intersección inválida: " + interseccion + " | sensor=" + sensorIdForLog + " → descartando");
+                return;
+            }
+
+            // Persistir solo eventos válidos
+            almacenarEvento(tipo, jsonEvento, bdPrincipal, bdReplica);
             
 
             DatosInterseccion datos = datosIntersecciones.computeIfAbsent(
-                interseccion, k -> new DatosInterseccion()
-            );
+                    interseccion, k -> new DatosInterseccion()
+                );
             
 
             String sensorId = extraerCampo(jsonEvento, "sensor_id");
@@ -213,6 +223,21 @@ public class ServicioAnalitica {
                 );
 
                 semaforos.send(("COMANDO " + comandoSemaforo).getBytes(ZMQ.CHARSET), 0);
+                registrarCambioEstado(
+                    interseccion,
+                    estadoAnterior.toString(),
+                    datos.estadoActual.toString(),
+                    orientacion,
+                    datos.cola,
+                    datos.vehiculosContados,
+                    datos.velocidadPromedio,
+                    datos.densidad,
+                    datos.nivelCongestion,
+                    tiempoVerde,
+                    extraerCampo(jsonEvento, "timestamp"),
+                    bdPrincipal,
+                    bdReplica
+                );
 
                 System.out.println("\n╔════════════════════════════════════════════════════════════╗");
                 System.out.println("║           CAMBIO DE ESTADO → CONTROL SEMÁFOROS          ║");
@@ -236,7 +261,7 @@ public class ServicioAnalitica {
         }
     }
 
-    private String procesarComandoManual(String solicitud, ZMQ.Socket semaforos) {
+    private String procesarComandoManual(String solicitud, ZMQ.Socket semaforos, ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
         try {
             if (solicitud == null || solicitud.trim().isEmpty()) {
                 return "ERROR|Solicitud vacia";
@@ -246,7 +271,7 @@ public class ServicioAnalitica {
             String comando = partes[0].toUpperCase();
 
             if ("PRIORIZAR".equals(comando)) {
-                return aplicarPriorizacionManual(partes, semaforos);
+                return aplicarPriorizacionManual(partes, semaforos, bdPrincipal, bdReplica);
             }
 
             if ("LIBERAR".equals(comando)) {
@@ -259,7 +284,7 @@ public class ServicioAnalitica {
         }
     }
 
-    private String aplicarPriorizacionManual(String[] partes, ZMQ.Socket semaforos) {
+    private String aplicarPriorizacionManual(String[] partes, ZMQ.Socket semaforos, ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
         if (partes.length < 2) {
             return "ERROR|Debe indicar la interseccion";
         }
@@ -294,6 +319,10 @@ public class ServicioAnalitica {
             motivo = sb.toString();
         }
 
+        if (!validarInterseccionValida(interseccion)) {
+            return "ERROR|Interseccion invalida: " + interseccion;
+        }
+
         DatosInterseccion datos = datosIntersecciones.computeIfAbsent(interseccion, k -> new DatosInterseccion());
         datos.estadoActual = EstadoTrafico.PRIORIZACION;
         datos.orientacionPrioridad = orientacion;
@@ -305,6 +334,7 @@ public class ServicioAnalitica {
             interseccion, duracion, motivo, orientacion
         );
         semaforos.send(("COMANDO " + comandoSemaforo).getBytes(ZMQ.CHARSET), 0);
+        registrarPriorizacionManual(interseccion, orientacion, duracion, motivo, bdPrincipal, bdReplica);
 
         System.out.println("\n╔════════════════════════════════════════════════════════════╗");
         System.out.println("║            PRIORIZACIÓN MANUAL APLICADA                   ║");
@@ -324,6 +354,10 @@ public class ServicioAnalitica {
         }
 
         String interseccion = partes[1];
+        if (!validarInterseccionValida(interseccion)) {
+            return "ERROR|Interseccion invalida: " + interseccion;
+        }
+
         DatosInterseccion datos = datosIntersecciones.computeIfAbsent(interseccion, k -> new DatosInterseccion());
         datos.priorizacionHasta = 0L;
         datos.estadoActual = EstadoTrafico.NORMAL;
@@ -372,6 +406,32 @@ public class ServicioAnalitica {
             return json.substring(inicio, fin).trim();
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    private boolean validarInterseccionValida(String interseccion) {
+        try {
+            if (interseccion == null || interseccion.isBlank()) return false;
+            String s = interseccion.trim().toUpperCase();
+            if (s.startsWith("INT-")) {
+                s = s.substring(4);
+            }
+
+            Pattern p = Pattern.compile("^([A-Z])[-_]?([0-9]+)$", Pattern.CASE_INSENSITIVE);
+            Matcher m = p.matcher(s);
+            if (!m.matches()) return false;
+
+            char filaChar = Character.toUpperCase(m.group(1).charAt(0));
+            int columna = Integer.parseInt(m.group(2));
+            int filaIndex = filaChar - 'A';
+
+            Configuracion cfg = Configuracion.getInstance();
+            int filas = cfg.getFilas();
+            int columnas = cfg.getColumnas();
+
+            return filaIndex >= 0 && filaIndex < filas && columna >= 1 && columna <= columnas;
+        } catch (Exception e) {
+            return false;
         }
     }
     
@@ -427,8 +487,9 @@ public class ServicioAnalitica {
         }
     }
 
-    private void almacenarEvento(String jsonEvento, ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
-        byte[] data = jsonEvento.getBytes(ZMQ.CHARSET);
+    private void almacenarEvento(String tipoEvento, String jsonEvento, ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
+        String payload = prepararEventoPersistencia(tipoEvento, jsonEvento);
+        byte[] data = payload.getBytes(ZMQ.CHARSET);
 
         boolean exito;
         if (persistirEnReplica) {
@@ -436,7 +497,7 @@ public class ServicioAnalitica {
             if (!exito) {
                 System.err.println("[ANALÍTICA] Error enviando a réplica, se conserva failover activo");
             }
-            colaEventosPendientesPrimario.offer(jsonEvento);
+            colaEventosPendientesPrimario.offer(payload);
         } else {
             exito = bdPrincipal.send(data, 0);
             if (!exito) {
@@ -444,12 +505,80 @@ public class ServicioAnalitica {
                 persistirEnReplica = true;
                 failoverActiva = true;
                 principalDisponible = false;
-                colaEventosPendientesPrimario.offer(jsonEvento);
+                colaEventosPendientesPrimario.offer(payload);
                 boolean replicaOk = bdReplica.send(data, 0);
                 if (!replicaOk) {
                     System.err.println("[ANALÍTICA] Error enviando también a la réplica");
                 }
             }
+        }
+    }
+
+    private void registrarCambioEstado(String interseccion, String estadoAnterior, String estadoNuevo,
+                                       String orientacion, int cola, int vehiculosContados,
+                                       double velocidadPromedio, double densidad, String nivelCongestion,
+                                       int tiempoVerde, String timestampSensor,
+                                       ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
+        long latenciaMs = calcularLatenciaMs(timestampSensor);
+        String json = String.format(
+            "{\"tipo_evento\":\"CAMBIO_ESTADO\",\"sensor_id\":\"SISTEMA\",\"tipo_sensor\":\"sistema\",\"interseccion\":\"%s\",\"estado_anterior\":\"%s\",\"estado_nuevo\":\"%s\",\"orientacion\":\"%s\",\"razon\":\"REGLA_AUTOMATICA\",\"tiempo_verde\":%d,\"q\":%d,\"cv\":%d,\"vp\":%.2f,\"d\":%.2f,\"nivel_congestion\":\"%s\",\"latencia_ms\":%d,\"timestamp\":\"%s\"}",
+            interseccion,
+            estadoAnterior,
+            estadoNuevo,
+            orientacion,
+            tiempoVerde,
+            cola,
+            vehiculosContados,
+            velocidadPromedio,
+            densidad,
+            nivelCongestion,
+            latenciaMs,
+            java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_DATE_TIME)
+        );
+        almacenarEvento("CAMBIO_ESTADO", json, bdPrincipal, bdReplica);
+    }
+
+    private void registrarPriorizacionManual(String interseccion, String orientacion, int duracion, String motivo,
+                                             ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
+        String json = String.format(
+            "{\"tipo_evento\":\"PRIORIZACION\",\"sensor_id\":\"OPERADOR\",\"tipo_sensor\":\"sistema\",\"interseccion\":\"%s\",\"orientacion\":\"%s\",\"duracion_verde\":%d,\"causa\":\"MANUAL\",\"motivo\":\"%s\",\"timestamp\":\"%s\"}",
+            interseccion,
+            orientacion,
+            duracion,
+            escaparJson(motivo),
+            java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_DATE_TIME)
+        );
+        almacenarEvento("PRIORIZACION", json, bdPrincipal, bdReplica);
+    }
+
+    private String prepararEventoPersistencia(String tipoEvento, String jsonEvento) {
+        String limpio = jsonEvento.trim();
+        if (limpio.startsWith("{") && limpio.endsWith("}")) {
+            String contenido = limpio.substring(1, limpio.length() - 1).trim();
+            if (contenido.contains("\"tipo_evento\"")) {
+                return limpio;
+            }
+            if (contenido.isEmpty()) {
+                return "{\"tipo_evento\":\"" + tipoEvento + "\"}";
+            }
+            return "{\"tipo_evento\":\"" + tipoEvento + "\"," + contenido + "}";
+        }
+        return "{\"tipo_evento\":\"" + tipoEvento + "\",\"json\":\"" + escaparJson(limpio) + "\"}";
+    }
+
+    private String escaparJson(String valor) {
+        return valor.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private long calcularLatenciaMs(String timestamp) {
+        if (timestamp == null || timestamp.isBlank()) {
+            return 0L;
+        }
+        try {
+            java.time.LocalDateTime origen = java.time.LocalDateTime.parse(timestamp, java.time.format.DateTimeFormatter.ISO_DATE_TIME);
+            return Math.max(0L, java.time.Duration.between(origen, java.time.LocalDateTime.now()).toMillis());
+        } catch (Exception e) {
+            return 0L;
         }
     }
 

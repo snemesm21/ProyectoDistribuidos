@@ -9,7 +9,6 @@ public class Semaforo {
     
     public Semaforo(String interseccion) {
         this.interseccion = interseccion;
-        // Inicialmente: horizontal en VERDE, vertical en ROJO
         this.estadoHorizontal = EstadoSemaforo.VERDE;
         this.estadoVertical = EstadoSemaforo.ROJO;
         this.ultimoCambio = LocalDateTime.now();

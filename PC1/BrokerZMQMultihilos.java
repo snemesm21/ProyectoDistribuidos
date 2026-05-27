@@ -13,28 +13,16 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.nio.charset.StandardCharsets;
-
-/**
- * Broker ZMQ multihilos - PC1
- * Variante para la segunda medida de desempeno del proyecto.
- *
- * Arquitectura:
- *  - hilo principal: recibe mensajes SUB desde sensores y los encola
- *  - pool de workers: procesa mensajes en paralelo sin tocar sockets
- *  - hilo publicador: consume la cola final y publica por PUB
- */
 public class BrokerZMQMultihilos {
     private int puertoSensores;
     private int puertoAnalitica;
     private List<String> topicosSuscripcion;
     private final int workerCount;
-    // metrics
     private final AtomicLong messagesReceived = new AtomicLong(0);
     private final AtomicLong messagesProcessed = new AtomicLong(0);
     private final AtomicLong messagesPublished = new AtomicLong(0);
     private final AtomicLong totalProcessingLatencyNs = new AtomicLong(0);
     private HttpServer metricsServer = null;
-    // expose queue sizes
     private LinkedBlockingQueue<String> metricsToProcess = null;
     private LinkedBlockingQueue<String> metricsToPublish = null;
 
@@ -177,7 +165,6 @@ public class BrokerZMQMultihilos {
             try {
                 workers = Integer.parseInt(args[0]);
             } catch (Exception e) {
-                // ignore
             }
         }
 
@@ -213,7 +200,6 @@ public class BrokerZMQMultihilos {
             });
             metricsServer.setExecutor(Executors.newSingleThreadExecutor());
             metricsServer.start();
-            System.out.println("[METRICS] HTTP metrics server started on port " + port + " (GET /metrics)");
         } catch (Exception e) {
             System.err.println("[METRICS] Failed to start metrics server: " + e.getMessage());
         }

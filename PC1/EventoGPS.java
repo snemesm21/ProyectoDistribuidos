@@ -1,6 +1,6 @@
 
 public class EventoGPS extends Evento {
-    private String nivelCongestion; // ALTA, NORMAL, BAJA
+    private String nivelCongestion;
     private double densidad;
     private double velocidadPromedio;
     

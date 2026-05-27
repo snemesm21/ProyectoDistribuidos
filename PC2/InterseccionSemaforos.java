@@ -17,7 +17,6 @@ public class InterseccionSemaforos {
 
     public synchronized void cambiarEstadoHorizontal(EstadoSemaforo nuevoEstado, int tiempoSegundos) {
         horizontal.setEstado(nuevoEstado, tiempoSegundos);
-        // Coordina la otra vía
         vertical.setEstado((nuevoEstado == EstadoSemaforo.VERDE) ? EstadoSemaforo.ROJO : EstadoSemaforo.VERDE, tiempoSegundos);
     }
 

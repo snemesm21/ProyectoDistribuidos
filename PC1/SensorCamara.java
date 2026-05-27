@@ -36,14 +36,14 @@ public class SensorCamara implements Runnable {
                 double velocidadPromedio;
 
                 if (probabilidad < 0.80) {
-                    volumen = random.nextInt(5); // 0-4
-                    velocidadPromedio = 36 + random.nextDouble() * 14; // 36-50
+                    volumen = random.nextInt(5);
+                    velocidadPromedio = 36 + random.nextDouble() * 14;
                 } else if (probabilidad < 0.95) {
-                    volumen = 5 + random.nextInt(5); // 5-9
-                    velocidadPromedio = 25 + random.nextDouble() * 10; // 25-35
+                    volumen = 5 + random.nextInt(5);
+                    velocidadPromedio = 25 + random.nextDouble() * 10;
                 } else {
-                    volumen = 10 + random.nextInt(6); // 10-15
-                    velocidadPromedio = 10 + random.nextDouble() * 9; // 10-19
+                    volumen = 10 + random.nextInt(6);
+                    velocidadPromedio = 10 + random.nextDouble() * 9;
                 }
                 
                 EventoCamara evento = new EventoCamara(

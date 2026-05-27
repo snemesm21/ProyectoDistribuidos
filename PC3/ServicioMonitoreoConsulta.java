@@ -34,21 +34,45 @@ public class ServicioMonitoreoConsulta {
 
                 switch (opcion) {
                     case "1":
-                        imprimirRespuesta("ESTADO");
+                        System.out.print("Interseccion (ej. INT-C5): ");
+                        String interseccionEstado = scanner.nextLine().trim();
+                        imprimirRespuesta("INTERSECCION " + interseccionEstado);
                         break;
                     case "2":
                         System.out.print("Intersección (ej. INT-C5): ");
                         String interseccion = scanner.nextLine().trim();
-                        imprimirRespuesta("INTERSECCION " + interseccion);
+                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00): ");
+                        String inicioHistorico = scanner.nextLine().trim();
+                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00): ");
+                        String finHistorico = scanner.nextLine().trim();
+                        imprimirRespuesta("HISTORICO " + interseccion + " " + inicioHistorico + " " + finHistorico);
                         break;
                     case "3":
-                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00Z): ");
-                        String inicio = scanner.nextLine().trim();
-                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00Z): ");
-                        String fin = scanner.nextLine().trim();
-                        imprimirRespuesta("HISTORICO " + inicio + " " + fin);
+                        System.out.print("Intersección (ej. INT-C5): ");
+                        String interseccionCambios = scanner.nextLine().trim();
+                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00): ");
+                        String inicioCambios = scanner.nextLine().trim();
+                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00): ");
+                        String finCambios = scanner.nextLine().trim();
+                        imprimirRespuesta("CAMBIOS_ESTADO " + interseccionCambios + " " + inicioCambios + " " + finCambios);
                         break;
                     case "4":
+                        System.out.print("Intersección (ej. INT-C5): ");
+                        String interseccionPriorizacion = scanner.nextLine().trim();
+                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00): ");
+                        String inicioPriorizacion = scanner.nextLine().trim();
+                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00): ");
+                        String finPriorizacion = scanner.nextLine().trim();
+                        imprimirRespuesta("PRIORIZACION " + interseccionPriorizacion + " " + inicioPriorizacion + " " + finPriorizacion);
+                        break;
+                    case "5":
+                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00): ");
+                        String inicioCongestion = scanner.nextLine().trim();
+                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00): ");
+                        String finCongestion = scanner.nextLine().trim();
+                        imprimirRespuesta("CONGESTION " + inicioCongestion + " " + finCongestion);
+                        break;
+                    case "6":
                         System.out.print("Cantidad de eventos: ");
                         String limite = scanner.nextLine().trim();
                         if (limite.isEmpty()) {
@@ -56,10 +80,43 @@ public class ServicioMonitoreoConsulta {
                         }
                         imprimirRespuesta("ULTIMOS " + limite);
                         break;
-                    case "5":
+                    case "7":
+                        System.out.print("Intersección (ej. INT-C5): ");
+                        String interseccionVelocidad = scanner.nextLine().trim();
+                        imprimirRespuesta("VELOCIDAD_PROMEDIO " + interseccionVelocidad);
+                        break;
+                    case "8":
+                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00): ");
+                        String inicioEventos = scanner.nextLine().trim();
+                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00): ");
+                        String finEventos = scanner.nextLine().trim();
+                        imprimirRespuesta("EVENTOS_RANGO " + inicioEventos + " " + finEventos);
+                        break;
+                    case "9":
+                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00): ");
+                        String inicioTasa = scanner.nextLine().trim();
+                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00): ");
+                        String finTasa = scanner.nextLine().trim();
+                        imprimirRespuesta("TASA_ALMACENAMIENTO " + inicioTasa + " " + finTasa);
+                        break;
+                    case "10":
+                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00): ");
+                        String inicioLatencia = scanner.nextLine().trim();
+                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00): ");
+                        String finLatencia = scanner.nextLine().trim();
+                        imprimirRespuesta("LATENCIA_PROMEDIO " + inicioLatencia + " " + finLatencia);
+                        break;
+                    case "11":
+                        System.out.print("Fecha inicio (ISO, ej. 2026-02-09T15:00:00): ");
+                        String inicioLatenciaStats = scanner.nextLine().trim();
+                        System.out.print("Fecha fin (ISO, ej. 2026-02-09T16:00:00): ");
+                        String finLatenciaStats = scanner.nextLine().trim();
+                        imprimirRespuesta("LATENCIA_ESTADISTICAS " + inicioLatenciaStats + " " + finLatenciaStats);
+                        break;
+                    case "12":
                         manejarPriorizacionManual(scanner);
                         break;
-                    case "6":
+                    case "13":
                         System.out.println("[MONITOREO] Saliendo del servicio.");
                         return;
                     default:
@@ -71,12 +128,19 @@ public class ServicioMonitoreoConsulta {
 
     private void mostrarMenu() {
         System.out.println();
-        System.out.println("1) Estado general del sistema");
-        System.out.println("2) Consulta por interseccion");
-        System.out.println("3) Consulta historica por rango");
-        System.out.println("4) Ultimos eventos");
-        System.out.println("5) Priorizacion manual");
-        System.out.println("6) Salir");
+        System.out.println("1) Estado actual de una interseccion");
+        System.out.println("2) Historial de eventos por interseccion y rango");
+        System.out.println("3) Historial de cambios de estado");
+        System.out.println("4) Historial de eventos de priorizacion");
+        System.out.println("5) Estadisticas de congestion por periodo");
+        System.out.println("6) Ultimos N eventos del sistema");
+        System.out.println("7) Velocidad promedio historica por interseccion");
+        System.out.println("8) Cantidad de eventos por rango de tiempo");
+        System.out.println("9) Tasa de almacenamiento por segundo");
+        System.out.println("10) Tiempo de respuesta promedio");
+        System.out.println("11) Estadisticas del tiempo de respuesta");
+        System.out.println("12) Priorizacion manual");
+        System.out.println("13) Salir");
         System.out.print("> ");
     }
 

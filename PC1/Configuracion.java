@@ -1,10 +1,6 @@
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-
-/**
-Configuracion centralizada del sistema - Patron Singleton
- */
 public class Configuracion {
 
     private static Configuracion instance;
@@ -35,24 +31,16 @@ public class Configuracion {
     private void cargarConfiguracion() {
         try {
             String contenido = leerArchivo("ConfiguracionSensores.json");
-
-            // Extraer direcciones
             pc1 = extraerValor(contenido, "pc1");
             pc2 = extraerValor(contenido, "pc2");
             pc3 = extraerValor(contenido, "pc3");
-
-            // Extraer puertos
             sensoresPub              = Integer.parseInt(extraerValor(contenido, "sensores_pub"));
             brokerPub                = Integer.parseInt(extraerValor(contenido, "broker_pub"));
             analiticaPushBdPrincipal = Integer.parseInt(extraerValor(contenido, "analitica_push_bd_principal"));
             analiticaPushBdReplica   = Integer.parseInt(extraerValor(contenido, "analitica_push_bd_replica"));
             analiticaPubSemaforos    = Integer.parseInt(extraerValor(contenido, "analitica_pub_semaforos"));
-
-            // Puerto REP de BD Principal para consultas del monitoreo
             String repStr = extraerValor(contenido, "bd_principal_rep");
             bdPrincipalRep = repStr.isEmpty() ? 11000 : Integer.parseInt(repStr);
-
-            // Extraer dimensiones de la cuadricula
             filas    = Integer.parseInt(extraerValor(contenido, "filas"));
             columnas = Integer.parseInt(extraerValor(contenido, "columnas"));
 
@@ -62,7 +50,6 @@ public class Configuracion {
 
         } catch (Exception e) {
             System.err.println("[CONFIGURACION] Error leyendo JSON, usando valores por defecto: " + e.getMessage());
-            // Valores por defecto consistentes con ConfiguracionSensores.json
             pc1                      = "10.43.100.83";
             pc2                      = "10.43.99.238";
             pc3                      = "10.43.99.225";
@@ -95,8 +82,6 @@ public class Configuracion {
             if (inicio == -1) return "";
 
             inicio += buscar.length();
-
-            // Saltar espacios y comillas
             while (inicio < json.length() &&
                    (json.charAt(inicio) == ' ' || json.charAt(inicio) == '"')) {
                 inicio++;
@@ -119,8 +104,6 @@ public class Configuracion {
             return "";
         }
     }
-
-    // Getters
     public String getPC1()                      { return pc1; }
     public String getPC2()                      { return pc2; }
     public String getPC3()                      { return pc3; }

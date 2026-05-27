@@ -37,19 +37,19 @@ public class SensorGPS implements Runnable {
                 double densidad;
 
                 if (probabilidad < 0.80) {
-                    velocidadPromedio = 40 + random.nextDouble() * 10; // 40-50
+                    velocidadPromedio = 40 + random.nextDouble() * 10;
                 } else if (probabilidad < 0.95) {
-                    velocidadPromedio = 25 + random.nextDouble() * 14; // 25-39
+                    velocidadPromedio = 25 + random.nextDouble() * 14;
                 } else {
-                    velocidadPromedio = 5 + random.nextDouble() * 14; // 5-19
+                    velocidadPromedio = 5 + random.nextDouble() * 14;
                 }
 
                 if (velocidadPromedio > 40) {
-                    densidad = 8 + random.nextDouble() * 10;   // 8-18
+                    densidad = 8 + random.nextDouble() * 10;
                 } else if (velocidadPromedio >= 20) {
-                    densidad = 18 + random.nextDouble() * 18;  // 18-36
+                    densidad = 18 + random.nextDouble() * 18;
                 } else {
-                    densidad = 40 + random.nextDouble() * 20;  // 40-60
+                    densidad = 40 + random.nextDouble() * 20;
                 }
                 
                 EventoGPS evento = new EventoGPS(

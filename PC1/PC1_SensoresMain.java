@@ -8,8 +8,6 @@ import java.util.regex.Pattern;
 
 
 public class PC1_SensoresMain {
-    
-    // Patrón para extraer intervalo de JSON
     private static final Pattern PATRON_INTERVALO = Pattern.compile("\"intervalo_segundos\"\\s*:\\s*(\\d+)");
 
 
@@ -106,8 +104,6 @@ public class PC1_SensoresMain {
 
         try {
             String json = leerArchivo("ConfiguracionSensores.json");
-
-            // Leer dimensiones
             int filas    = extraerEntero(json, "filas",    5);
             int columnas = extraerEntero(json, "columnas", 5);
 

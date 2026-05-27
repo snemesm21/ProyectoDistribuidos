@@ -36,11 +36,11 @@ public class SensorEspiraInductiva implements Runnable {
                 int vehiculosContados;
 
                 if (probabilidad < 0.80) {
-                    vehiculosContados = 6 + random.nextInt(7); // 6-12
+                    vehiculosContados = 6 + random.nextInt(7);
                 } else if (probabilidad < 0.95) {
-                    vehiculosContados = random.nextInt(6); // 0-5
+                    vehiculosContados = random.nextInt(6);
                 } else {
-                    vehiculosContados = 13 + random.nextInt(8); // 13-20
+                    vehiculosContados = 13 + random.nextInt(8);
                 }
                 
                 EventoEspira evento = new EventoEspira(

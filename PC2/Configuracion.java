@@ -1,11 +1,6 @@
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-
-/**
- * Configuracion centralizada del sistema - Patron Singleton
-
- */
 public class Configuracion {
 
     private static Configuracion instance;
@@ -38,13 +33,9 @@ public class Configuracion {
     private void cargarConfiguracion() {
         try {
             String contenido = leerArchivo("ConfiguracionSensores.json");
-
-
             pc1 = extraerValor(contenido, "pc1");
             pc2 = extraerValor(contenido, "pc2");
             pc3 = extraerValor(contenido, "pc3");
-
-
             sensoresPub              = Integer.parseInt(extraerValor(contenido, "sensores_pub"));
             brokerPub                = Integer.parseInt(extraerValor(contenido, "broker_pub"));
             analiticaPushBdPrincipal = Integer.parseInt(extraerValor(contenido, "analitica_push_bd_principal"));
@@ -57,8 +48,6 @@ public class Configuracion {
 
             String repReplicaStr = extraerValor(contenido, "bd_replica_rep");
             bdReplicaRep = repReplicaStr.isEmpty() ? 11001 : Integer.parseInt(repReplicaStr);
-
-
             filas    = Integer.parseInt(extraerValor(contenido, "filas"));
             columnas = Integer.parseInt(extraerValor(contenido, "columnas"));
 
@@ -68,7 +57,6 @@ public class Configuracion {
 
         } catch (Exception e) {
             System.err.println("[CONFIGURACION] Error leyendo JSON, usando valores por defecto: " + e.getMessage());
-
             pc1                      = "10.43.100.83";
             pc2                      = "10.43.99.238";
             pc3                      = "10.43.99.225";
@@ -103,8 +91,6 @@ public class Configuracion {
             if (inicio == -1) return "";
 
             inicio += buscar.length();
-
-            // Saltar espacios y comillas
             while (inicio < json.length() &&
                    (json.charAt(inicio) == ' ' || json.charAt(inicio) == '"')) {
                 inicio++;
@@ -127,8 +113,6 @@ public class Configuracion {
             return "";
         }
     }
-
-    // Getters
     public String getPC1()                      { return pc1; }
     public String getPC2()                      { return pc2; }
     public String getPC3()                      { return pc3; }

@@ -7,20 +7,9 @@ import java.net.InetSocketAddress;
 import java.io.OutputStream;
 import java.util.concurrent.atomic.AtomicLong;
 import java.nio.charset.StandardCharsets;
-
-/**
- * Broker ZMQ normal - PC1
- * Arquitectura base del proyecto:
- *  - un hilo recibe eventos desde los sensores por SUB
- *  - el mismo hilo reenvia los eventos al servicio de analitica por PUB
- *
- * Esta version conserva el desacoplamiento asincrono de ZMQ, pero sin
- * paralelismo adicional dentro del broker.
- */
 public class BrokerZMQ {
     private int puertoSensores;
     private int puertoAnalitica;
-    // metrics
     private final AtomicLong messagesReceived = new AtomicLong(0);
     private final AtomicLong messagesForwarded = new AtomicLong(0);
     private final AtomicLong totalProcessingLatencyNs = new AtomicLong(0);
@@ -113,7 +102,6 @@ public class BrokerZMQ {
             });
             metricsServer.setExecutor(null);
             metricsServer.start();
-            System.out.println("[METRICS] HTTP metrics server started on port " + port + " (GET /metrics)");
         } catch (Exception e) {
             System.err.println("[METRICS] Failed to start metrics server: " + e.getMessage());
         }
