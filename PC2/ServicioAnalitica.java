@@ -111,7 +111,7 @@ public class ServicioAnalitica {
                                 Configuracion conf = Configuracion.getInstance();
                                 boolean ok = true;
                                 String[] partes = mensaje.split(" ", 2);
-                                String jsonEvento = partes.length > 1 ? partes[1] : null;
+                                String jsonEvento = partes.length > 1 ? normalizarJsonEvento(partes[1]) : null;
                                 if (conf.isHmacEnabled() && jsonEvento != null) {
                                     ok = HmacUtil.verifyJson(jsonEvento, conf.getSharedSecret());
                                 }
@@ -180,7 +180,7 @@ public class ServicioAnalitica {
         try {
             String[] partes = mensaje.split(" ", 2);
             String tipo = partes[0];
-            String jsonEvento = partes[1];
+            String jsonEvento = normalizarJsonEvento(partes[1]);
 
             String interseccion = extraerCampo(jsonEvento, "interseccion");
             String sensorIdForLog = extraerCampo(jsonEvento, "sensor_id");
@@ -303,6 +303,19 @@ public class ServicioAnalitica {
         } catch (Exception e) {
             System.err.println("[ERROR ANALÍTICA] Procesando evento: " + e.getMessage());
         }
+    }
+
+    private String normalizarJsonEvento(String jsonEvento) {
+        if (jsonEvento == null) {
+            return null;
+        }
+        String limpio = jsonEvento.trim();
+        int inicio = limpio.indexOf('{');
+        int fin = limpio.lastIndexOf('}');
+        if (inicio != -1 && fin != -1 && fin > inicio) {
+            return limpio.substring(inicio, fin + 1).trim();
+        }
+        return limpio;
     }
 
     private String procesarComandoManual(String solicitud, ZMQ.Socket semaforos, ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
@@ -630,7 +643,10 @@ public class ServicioAnalitica {
     }
 
     private String prepararEventoPersistencia(String tipoEvento, String jsonEvento) {
-        String limpio = jsonEvento.trim();
+        String limpio = normalizarJsonEvento(jsonEvento);
+        if (limpio == null) {
+            return "{\"tipo_evento\":\"" + tipoEvento + "\"}";
+        }
         if (limpio.startsWith("{") && limpio.endsWith("}")) {
             String contenido = limpio.substring(1, limpio.length() - 1).trim();
             if (contenido.contains("\"tipo_evento\"")) {

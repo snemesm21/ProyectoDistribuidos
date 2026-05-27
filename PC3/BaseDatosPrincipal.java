@@ -250,12 +250,12 @@ public class BaseDatosPrincipal {
                 String sensorId = extraerCampoTexto(jsonLimpio, "sensor_id");
                 String tipoSensor = extraerCampoTexto(jsonLimpio, "tipo_sensor");
                 String interseccion = extraerCampoTexto(jsonLimpio, "interseccion");
-                Integer vehiculosContados = extraerCampoEntero(jsonLimpio, "vehiculos_contados");
-                Integer intervaloSegundos = extraerCampoEntero(jsonLimpio, "intervalo_segundos");
+                Integer vehiculosContados = extraerEnteroFlexible(jsonLimpio, "vehiculos_contados", "cv");
+                Integer intervaloSegundos = extraerEnteroFlexible(jsonLimpio, "intervalo_segundos");
                 String timestampInicio = extraerCampoTexto(jsonLimpio, "timestamp_inicio");
                 String timestampFin = extraerCampoTexto(jsonLimpio, "timestamp_fin");
-                Integer volumen = extraerCampoEntero(jsonLimpio, "volumen");
-                Double velocidadPromedio = extraerCampoDecimal(jsonLimpio, "velocidad_promedio");
+                Integer volumen = extraerEnteroFlexible(jsonLimpio, "volumen", "q", "cola");
+                Double velocidadPromedio = extraerDecimalFlexible(jsonLimpio, "velocidad_promedio", "vp");
                 String nivelCongestion = extraerCampoTexto(jsonLimpio, "nivel_congestion");
                 String timestampEvento = extraerCampoTexto(jsonLimpio, "timestamp");
 
@@ -298,12 +298,12 @@ public class BaseDatosPrincipal {
         if (sensorId == null) sensorId = buscarCampoFlexible(jsonLimpio, "sensor_id");
         if (tipoSensor == null) tipoSensor = buscarCampoFlexible(jsonLimpio, "tipo_sensor");
         if (interseccion == null) interseccion = buscarCampoFlexible(jsonLimpio, "interseccion");
-        Integer vehiculosContados = extraerCampoEntero(jsonLimpio, "vehiculos_contados");
-        Integer intervaloSegundos = extraerCampoEntero(jsonLimpio, "intervalo_segundos");
+        Integer vehiculosContados = extraerEnteroFlexible(jsonLimpio, "vehiculos_contados", "cv");
+        Integer intervaloSegundos = extraerEnteroFlexible(jsonLimpio, "intervalo_segundos");
         String timestampInicio = extraerCampoTexto(jsonLimpio, "timestamp_inicio");
         String timestampFin = extraerCampoTexto(jsonLimpio, "timestamp_fin");
-        Integer volumen = extraerCampoEntero(jsonLimpio, "volumen");
-        Double velocidadPromedio = extraerCampoDecimal(jsonLimpio, "velocidad_promedio");
+        Integer volumen = extraerEnteroFlexible(jsonLimpio, "volumen", "q", "cola");
+        Double velocidadPromedio = extraerDecimalFlexible(jsonLimpio, "velocidad_promedio", "vp");
         String nivelCongestion = extraerCampoTexto(jsonLimpio, "nivel_congestion");
         String timestampEvento = extraerCampoTexto(jsonLimpio, "timestamp");
 
@@ -1107,12 +1107,12 @@ public class BaseDatosPrincipal {
         String sensorId = extraerCampoTexto(eventoJson, "sensor_id");
         String tipoSensor = extraerCampoTexto(eventoJson, "tipo_sensor");
         String interseccion = extraerCampoTexto(eventoJson, "interseccion");
-        Integer vehiculosContados = extraerCampoEntero(eventoJson, "vehiculos_contados");
-        Integer intervaloSegundos = extraerCampoEntero(eventoJson, "intervalo_segundos");
+        Integer vehiculosContados = extraerEnteroFlexible(eventoJson, "vehiculos_contados", "cv");
+        Integer intervaloSegundos = extraerEnteroFlexible(eventoJson, "intervalo_segundos");
         String timestampInicio = extraerCampoTexto(eventoJson, "timestamp_inicio");
         String timestampFin = extraerCampoTexto(eventoJson, "timestamp_fin");
-        Integer volumen = extraerCampoEntero(eventoJson, "volumen");
-        Double velocidadPromedio = extraerCampoDecimal(eventoJson, "velocidad_promedio");
+        Integer volumen = extraerEnteroFlexible(eventoJson, "volumen", "q", "cola");
+        Double velocidadPromedio = extraerDecimalFlexible(eventoJson, "velocidad_promedio", "vp");
         String nivelCongestion = extraerCampoTexto(eventoJson, "nivel_congestion");
         String timestampEvento = extraerCampoTexto(eventoJson, "timestamp");
 
@@ -1217,6 +1217,46 @@ public class BaseDatosPrincipal {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private Integer extraerEnteroFlexible(String json, String... campos) {
+        if (campos == null) {
+            return null;
+        }
+        for (String campo : campos) {
+            Integer valor = extraerCampoEntero(json, campo);
+            if (valor != null) {
+                return valor;
+            }
+            String texto = extraerCampoTexto(json, campo);
+            if (texto != null && !texto.isBlank()) {
+                try {
+                    return Integer.parseInt(texto.trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    private Double extraerDecimalFlexible(String json, String... campos) {
+        if (campos == null) {
+            return null;
+        }
+        for (String campo : campos) {
+            Double valor = extraerCampoDecimal(json, campo);
+            if (valor != null) {
+                return valor;
+            }
+            String texto = extraerCampoTexto(json, campo);
+            if (texto != null && !texto.isBlank()) {
+                try {
+                    return Double.parseDouble(texto.trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return null;
     }
 
     private String extraerCampoNumerico(String json, String campo) {
