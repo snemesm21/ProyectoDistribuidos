@@ -149,13 +149,10 @@ public class ServicioAnalitica {
                 interseccion = extraerInterseccionDesdeSensorId(sensorIdForLog);
             }
 
-            // Validar que la intersección esté dentro de la cuadrícula configurada
             if (!validarInterseccionValida(interseccion)) {
                 System.err.println("[ANALÍTICA] Evento recibido para intersección inválida: " + interseccion + " | sensor=" + sensorIdForLog + " → descartando");
                 return;
             }
-
-            // Persistir solo eventos válidos
             almacenarEvento(tipo, jsonEvento, bdPrincipal, bdReplica);
             
 

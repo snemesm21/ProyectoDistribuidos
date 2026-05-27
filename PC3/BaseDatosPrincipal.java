@@ -1,5 +1,7 @@
 import org.zeromq.ZMQ;
 import org.zeromq.ZContext;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -191,6 +193,10 @@ public class BaseDatosPrincipal {
         String sensorId = extraerCampoTexto(eventoJson, "sensor_id");
         String tipoSensor = extraerCampoTexto(eventoJson, "tipo_sensor");
         String interseccion = extraerCampoTexto(eventoJson, "interseccion");
+
+        if (sensorId == null) sensorId = buscarCampoFlexible(eventoJson, "sensor_id");
+        if (tipoSensor == null) tipoSensor = buscarCampoFlexible(eventoJson, "tipo_sensor");
+        if (interseccion == null) interseccion = buscarCampoFlexible(eventoJson, "interseccion");
         Integer vehiculosContados = extraerCampoEntero(eventoJson, "vehiculos_contados");
         Integer intervaloSegundos = extraerCampoEntero(eventoJson, "intervalo_segundos");
         String timestampInicio = extraerCampoTexto(eventoJson, "timestamp_inicio");
@@ -252,10 +258,9 @@ public class BaseDatosPrincipal {
                       " km/h | Nivel=" + (nivelCongestion != null ? nivelCongestion : "N/A");
         }
         
-        System.out.println("[BD PRINCIPAL] Evento #" + contadorEventos + " | " + 
-            (tipoSensor != null ? tipoSensor.toUpperCase() : "???") + 
-            " | INT-" + (interseccion != null ? interseccion : "?") + 
-            " | " + detalles);
+        String tipoSensorPrint = tipoSensor != null ? tipoSensor.toUpperCase() : "???";
+        String interPrint = interseccion != null ? interseccion : "?";
+        System.out.println("[BD PRINCIPAL] Evento #" + contadorEventos + " | " + tipoSensorPrint + " | INT-" + interPrint + " | " + detalles);
         
         if (contadorEventos % 10 == 0) {
             System.out.println("\n╔════════════════════════════════════════════╗");
@@ -803,6 +808,23 @@ public class BaseDatosPrincipal {
             .append("LATENCIA_MAX_MS=").append(maximo != null ? maximo : 0).append('\n')
             .append("LATENCIA_PROMEDIO_MS=").append(String.format("%.2f", promedio))
             .toString();
+    }
+
+    private String buscarCampoFlexible(String json, String campo) {
+        if (json == null || campo == null) return null;
+        try {
+            Pattern p1 = Pattern.compile("\"" + Pattern.quote(campo) + "\"\\s*:\\s*\"([^\"]*)\"");
+            Matcher m1 = p1.matcher(json);
+            if (m1.find()) return m1.group(1);
+
+            Pattern p2 = Pattern.compile("\\\\\"" + Pattern.quote(campo) + "\\\\\"\\s*:\\s*\\\\\"([^\\\\\"]*)\\\\\"");
+            Matcher m2 = p2.matcher(json);
+            if (m2.find()) return m2.group(1).replaceAll("\\\\\\\\", "\\\\");
+
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private long calcularDuracionSegundos(String fechaInicio, String fechaFin) {

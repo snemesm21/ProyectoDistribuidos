@@ -1,5 +1,7 @@
 import org.zeromq.ZMQ;
 import org.zeromq.ZContext;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -186,6 +188,11 @@ public class BaseDatosReplica {
         String sensorId = extraerCampoTexto(eventoJson, "sensor_id");
         String tipoSensor = extraerCampoTexto(eventoJson, "tipo_sensor");
         String interseccion = extraerCampoTexto(eventoJson, "interseccion");
+
+
+        if (sensorId == null) sensorId = buscarCampoFlexible(eventoJson, "sensor_id");
+        if (tipoSensor == null) tipoSensor = buscarCampoFlexible(eventoJson, "tipo_sensor");
+        if (interseccion == null) interseccion = buscarCampoFlexible(eventoJson, "interseccion");
         Integer vehiculosContados = extraerCampoEntero(eventoJson, "vehiculos_contados");
         Integer intervaloSegundos = extraerCampoEntero(eventoJson, "intervalo_segundos");
         String timestampInicio = extraerCampoTexto(eventoJson, "timestamp_inicio");
@@ -242,10 +249,9 @@ public class BaseDatosReplica {
                           " km/h | Nivel=" + (nivelCongestion != null ? nivelCongestion : "N/A");
             }
             
-            System.out.println("[BD RÉPLICA] Evento #" + contadorEventos + " | " + 
-                (tipoSensor != null ? tipoSensor.toUpperCase() : "???") + 
-                " | INT-" + (interseccion != null ? interseccion : "?") + 
-                " | " + detalles);
+            String tipoSensorPrint = tipoSensor != null ? tipoSensor.toUpperCase() : "???";
+            String interPrint = interseccion != null ? interseccion : "?";
+            System.out.println("[BD RÉPLICA] Evento #" + contadorEventos + " | " + tipoSensorPrint + " | INT-" + interPrint + " | " + detalles);
         } catch (SQLException e) {
             System.err.println("[ERROR BD RÉPLICA] Insertando evento en SQLite: " + e.getMessage());
         }
