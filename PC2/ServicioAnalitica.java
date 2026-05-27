@@ -107,14 +107,53 @@ public class ServicioAnalitica {
                     if (poller.pollin(0)) {
                         String mensaje = subscriber.recvStr(0);
                         if (mensaje != null) {
-                            procesarEvento(mensaje, pusherBDPrincipal, pusherBDReplica, publisherSemaforos);
+                            try {
+                                Configuracion conf = Configuracion.getInstance();
+                                boolean ok = true;
+                                String[] partes = mensaje.split(" ", 2);
+                                String jsonEvento = partes.length > 1 ? partes[1] : null;
+                                if (conf.isHmacEnabled() && jsonEvento != null) {
+                                    ok = HmacUtil.verifyJson(jsonEvento, conf.getSharedSecret());
+                                }
+                                if (!ok) {
+                                    System.err.println("[ANALÍTICA][DROP] Mensaje con firma inválida recibido y descartado: " + mensaje.split(" ")[0]);
+                                } else {
+                                    procesarEvento(mensaje, pusherBDPrincipal, pusherBDReplica, publisherSemaforos);
+                                }
+                            } catch (Exception e) {
+                                procesarEvento(mensaje, pusherBDPrincipal, pusherBDReplica, publisherSemaforos);
+                            }
                         }
                     }
 
                     if (poller.pollin(1)) {
                         String solicitud = controlRep.recvStr(0);
-                        String respuesta = procesarComandoManual(solicitud, publisherSemaforos, pusherBDPrincipal, pusherBDReplica);
-                        controlRep.send(respuesta.getBytes(ZMQ.CHARSET), 0);
+                        try {
+                            Configuracion conf = Configuracion.getInstance();
+                            boolean ok = true;
+                            if (conf.isHmacEnabled()) {
+                                ok = HmacUtil.verifyPlainWithSuffix(solicitud, conf.getSharedSecret());
+                            }
+                            String respuesta;
+                            if (!ok) {
+                                respuesta = "ERROR|Firma inválida";
+                            } else {
+                                String req = solicitud;
+                                if (conf.isHmacEnabled()) {
+                                    // strip suffix for processing
+                                    int idx = solicitud.lastIndexOf("||SIG:");
+                                    if (idx != -1) req = solicitud.substring(0, idx);
+                                }
+                                respuesta = procesarComandoManual(req, publisherSemaforos, pusherBDPrincipal, pusherBDReplica);
+                            }
+                            if (Configuracion.getInstance().isHmacEnabled()) {
+                                respuesta = HmacUtil.signPlainWithSuffix(respuesta, Configuracion.getInstance().getSharedSecret());
+                            }
+                            controlRep.send(respuesta.getBytes(ZMQ.CHARSET), 0);
+                        } catch (Exception e) {
+                            String respuesta = procesarComandoManual(solicitud, publisherSemaforos, pusherBDPrincipal, pusherBDReplica);
+                            controlRep.send(respuesta.getBytes(ZMQ.CHARSET), 0);
+                        }
                     }
 
                     if (principalDisponible && !colaEventosPendientesPrimario.isEmpty()) {
@@ -219,7 +258,15 @@ public class ServicioAnalitica {
                     interseccion, tiempoVerde, datos.estadoActual, orientacion
                 );
 
-                semaforos.send(("COMANDO " + comandoSemaforo).getBytes(ZMQ.CHARSET), 0);
+                {
+                    String cmdJson = comandoSemaforo;
+                    Configuracion confCmd = Configuracion.getInstance();
+                    if (confCmd.isHmacEnabled()) {
+                        String sig = HmacUtil.hmacSha256Hex(confCmd.getSharedSecret(), cmdJson);
+                        cmdJson = HmacUtil.addSignatureToJson(cmdJson, sig);
+                    }
+                    semaforos.send(("COMANDO " + cmdJson).getBytes(ZMQ.CHARSET), 0);
+                }
                 registrarCambioEstado(
                     interseccion,
                     estadoAnterior.toString(),
@@ -330,7 +377,15 @@ public class ServicioAnalitica {
             "{\"interseccion\":\"%s\",\"estado\":\"VERDE\",\"tiempo\":%d,\"razon\":\"PRIORIZACION:%s\",\"orientacion\":\"%s\"}",
             interseccion, duracion, motivo, orientacion
         );
-        semaforos.send(("COMANDO " + comandoSemaforo).getBytes(ZMQ.CHARSET), 0);
+        {
+            String cmdJson = comandoSemaforo;
+            Configuracion confCmd = Configuracion.getInstance();
+            if (confCmd.isHmacEnabled()) {
+                String sig = HmacUtil.hmacSha256Hex(confCmd.getSharedSecret(), cmdJson);
+                cmdJson = HmacUtil.addSignatureToJson(cmdJson, sig);
+            }
+            semaforos.send(("COMANDO " + cmdJson).getBytes(ZMQ.CHARSET), 0);
+        }
         registrarPriorizacionManual(interseccion, orientacion, duracion, motivo, bdPrincipal, bdReplica);
 
         System.out.println("\n╔════════════════════════════════════════════════════════════╗");
@@ -475,8 +530,29 @@ public class ServicioAnalitica {
             req.setReceiveTimeOut(1000);
             req.setSendTimeOut(1000);
             req.connect(direccion);
-            req.send("PING".getBytes(ZMQ.CHARSET), 0);
+            try {
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled()) {
+                    String signed = HmacUtil.signPlainWithSuffix("PING", conf.getSharedSecret());
+                    req.send(signed.getBytes(ZMQ.CHARSET), 0);
+                } else {
+                    req.send("PING".getBytes(ZMQ.CHARSET), 0);
+                }
+            } catch (Throwable t) {
+                req.send("PING".getBytes(ZMQ.CHARSET), 0);
+            }
             String respuesta = req.recvStr(0);
+            try {
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled() && respuesta != null) {
+                    if (!HmacUtil.verifyPlainWithSuffix(respuesta, conf.getSharedSecret())) {
+                        req.close();
+                        return false;
+                    }
+                    int idx = respuesta.lastIndexOf("||SIG:");
+                    if (idx != -1) respuesta = respuesta.substring(0, idx);
+                }
+            } catch (Throwable ignored) {}
             req.close();
             return respuesta != null && respuesta.startsWith("PONG");
         } catch (Exception e) {
@@ -486,6 +562,11 @@ public class ServicioAnalitica {
 
     private void almacenarEvento(String tipoEvento, String jsonEvento, ZMQ.Socket bdPrincipal, ZMQ.Socket bdReplica) {
         String payload = prepararEventoPersistencia(tipoEvento, jsonEvento);
+        Configuracion conf = Configuracion.getInstance();
+        if (conf.isHmacEnabled()) {
+            String sig = HmacUtil.hmacSha256Hex(conf.getSharedSecret(), payload);
+            payload = HmacUtil.addSignatureToJson(payload, sig);
+        }
         byte[] data = payload.getBytes(ZMQ.CHARSET);
 
         boolean exito;

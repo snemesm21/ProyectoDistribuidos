@@ -18,6 +18,8 @@ public class Configuracion {
     private int bdReplicaRep;
     private int filas;
     private int columnas;
+    private String sharedSecret;
+    private boolean hmacEnabled;
 
     private Configuracion() {
         cargarConfiguracion();
@@ -52,6 +54,10 @@ public class Configuracion {
 
             filas    = Integer.parseInt(extraerValor(contenido, "filas"));
             columnas = Integer.parseInt(extraerValor(contenido, "columnas"));
+            String secret = extraerValor(contenido, "shared_secret");
+            sharedSecret = secret.isEmpty() ? "changeme" : secret;
+            String hmacStr = extraerValor(contenido, "hmac_enabled");
+            hmacEnabled = hmacStr.isEmpty() ? false : Boolean.parseBoolean(hmacStr);
 
             System.out.println("[CONFIGURACION] JSON cargado correctamente");
             System.out.println("[CONFIGURACION] Cuadricula: " + filas + "x" + columnas);
@@ -72,6 +78,8 @@ public class Configuracion {
             bdReplicaRep             = 11001;
             filas                    = 5;
             columnas                 = 5;
+            sharedSecret             = "changeme";
+            hmacEnabled              = false;
         }
     }
 
@@ -128,4 +136,6 @@ public class Configuracion {
     public int getBdReplicaRep()                { return bdReplicaRep; }
     public int getFilas()                       { return filas; }
     public int getColumnas()                    { return columnas; }
+    public String getSharedSecret()             { return sharedSecret; }
+    public boolean isHmacEnabled()              { return hmacEnabled; }
 }

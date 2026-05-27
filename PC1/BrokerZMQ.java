@@ -42,18 +42,34 @@ public class BrokerZMQ {
             startMetricsServer(9001);
 
             try {
+                Configuracion conf = Configuracion.getInstance();
                 while (!Thread.currentThread().isInterrupted()) {
                     String mensaje = subscriber.recvStr(0);
                     if (mensaje != null) {
                         long recvNs = System.nanoTime();
                         messagesReceived.incrementAndGet();
+
+                        String[] partes = mensaje.split(" ", 2);
+                        String tipo = partes.length > 0 ? partes[0] : "?";
+                        String jsonPart = partes.length > 1 ? partes[1] : null;
+
+                        boolean ok = true;
+                        if (conf.isHmacEnabled() && jsonPart != null) {
+                            ok = HmacUtil.verifyJson(jsonPart, conf.getSharedSecret());
+                        }
+
+                        if (!ok) {
+                            System.err.println("[BROKER][DROP] Firma inválida o faltante en mensaje: " + tipo);
+                            continue;
+                        }
+
                         String out = mensaje + " BROKER_RECV_NS=" + recvNs;
                         long publishTime = System.nanoTime();
                         publisher.send(out.getBytes(ZMQ.CHARSET), 0);
                         long delta = publishTime - recvNs;
                         totalProcessingLatencyNs.addAndGet(delta);
                         messagesForwarded.incrementAndGet();
-                        System.out.println("[BROKER][FORWARD] Evento reenviado: " + mensaje.split(" ")[0] + " delta_ns=" + delta);
+                        System.out.println("[BROKER][FORWARD] Evento reenviado: " + tipo + " delta_ns=" + delta);
                     }
                 }
             } finally {

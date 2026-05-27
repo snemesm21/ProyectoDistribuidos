@@ -116,7 +116,28 @@ public class BaseDatosReplica {
                         continue;
                     }
 
+                    try {
+                        Configuracion conf = Configuracion.getInstance();
+                        if (conf.isHmacEnabled()) {
+                            boolean ok = HmacUtil.verifyPlainWithSuffix(solicitud, conf.getSharedSecret());
+                            if (!ok) {
+                                rep.send("ERROR|Firma inválida".getBytes(ZMQ.CHARSET), 0);
+                                continue;
+                            }
+                            int idx = solicitud.lastIndexOf("||SIG:");
+                            if (idx != -1) solicitud = solicitud.substring(0, idx);
+                        }
+                    } catch (Throwable ignored) {}
+
                     String respuesta = manejarSolicitudConsulta(solicitud);
+                    // sign reply if enabled
+                    try {
+                        Configuracion conf2 = Configuracion.getInstance();
+                        if (conf2.isHmacEnabled()) {
+                            respuesta = HmacUtil.signPlainWithSuffix(respuesta, conf2.getSharedSecret());
+                        }
+                    } catch (Throwable ignored) {}
+
                     rep.send(respuesta.getBytes(ZMQ.CHARSET), 0);
                 }
 
@@ -182,6 +203,17 @@ public class BaseDatosReplica {
     }
 
     private synchronized void almacenarEventoEnSQLite(String eventoJson) {
+        try {
+            Configuracion conf = Configuracion.getInstance();
+            if (conf.isHmacEnabled()) {
+                boolean ok = HmacUtil.verifyJson(eventoJson, conf.getSharedSecret());
+                if (!ok) {
+                    System.err.println("[BD RÉPLICA][DROP] Evento con firma inválida descartado");
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+
         contadorEventos++;
         String recibidoEn = LocalDateTime.now().format(DateTimeFormatter.ISO_DATE_TIME);
         String tipoEvento = extraerCampoTexto(eventoJson, "tipo_evento");

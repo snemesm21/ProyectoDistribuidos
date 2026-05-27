@@ -50,7 +50,14 @@ public class SensorEspiraInductiva implements Runnable {
                     intervaloSegundos
                 );
                 
-                String mensaje = "ESPIRA " + evento.toJson();
+                String json = evento.toJson();
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled()) {
+                    String sig = HmacUtil.hmacSha256Hex(conf.getSharedSecret(), json);
+                    json = HmacUtil.addSignatureToJson(json, sig);
+                }
+
+                String mensaje = "ESPIRA " + json;
                 publisher.send(mensaje.getBytes(ZMQ.CHARSET), 0);
                 
                 System.out.println("[ESPIRA] " + sensorId + " -> Vehículos contados: " + vehiculosContados);

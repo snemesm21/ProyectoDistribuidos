@@ -121,15 +121,30 @@ public class BrokerZMQMultihilos {
             System.out.println("[BROKER-MT] Workers: " + workerCount);
             System.out.println("=================================\n");
 
+            Configuracion conf = Configuracion.getInstance();
             try {
                 while (!Thread.currentThread().isInterrupted()) {
                     String mensaje = subscriber.recvStr(0);
                     if (mensaje != null) {
                         long recvNs = System.nanoTime();
+                        String[] partes = mensaje.split(" ", 2);
+                        String tipo = partes.length > 0 ? partes[0] : "?";
+                        String jsonPart = partes.length > 1 ? partes[1] : null;
+
+                        boolean ok = true;
+                        if (conf.isHmacEnabled() && jsonPart != null) {
+                            ok = HmacUtil.verifyJson(jsonPart, conf.getSharedSecret());
+                        }
+
+                        if (!ok) {
+                            System.err.println("[BROKER-MT][DROP] Firma inválida o faltante en mensaje: " + tipo);
+                            continue;
+                        }
+
                         String mark = " BROKER_RECV_NS=" + recvNs;
                         toProcess.put(mensaje + mark);
                         messagesReceived.incrementAndGet();
-                        System.out.println("[BROKER-MT][RECV] Encolado evento: " + mensaje.split(" ")[0] + " queuesize=" + toProcess.size());
+                        System.out.println("[BROKER-MT][RECV] Encolado evento: " + tipo + " queuesize=" + toProcess.size());
                     }
                 }
             } catch (InterruptedException e) {

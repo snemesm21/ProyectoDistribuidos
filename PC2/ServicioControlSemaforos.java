@@ -131,9 +131,22 @@ public class ServicioControlSemaforos {
 
             Thread.sleep(1000);
 
+            Configuracion conf = Configuracion.getInstance();
             while (!Thread.currentThread().isInterrupted()) {
                 String mensaje = subscriber.recvStr(0);
                 if (mensaje != null) {
+                    try {
+                        String[] partes = mensaje.split(" ", 2);
+                        String jsonComando = partes.length > 1 ? partes[1] : null;
+                        boolean ok = true;
+                        if (conf.isHmacEnabled() && jsonComando != null) {
+                            ok = HmacUtil.verifyJson(jsonComando, conf.getSharedSecret());
+                        }
+                        if (!ok) {
+                            System.err.println("[SEMAFOROS][DROP] Comando con firma inválida: " + mensaje.split(" ")[0]);
+                            continue;
+                        }
+                    } catch (Exception e) {}
                     procesarComando(mensaje);
                 }
             }

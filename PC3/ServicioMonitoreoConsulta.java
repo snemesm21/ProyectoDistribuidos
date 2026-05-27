@@ -223,9 +223,29 @@ public class ServicioMonitoreoConsulta {
             req.setReceiveTimeOut(5000);
             req.setSendTimeOut(5000);
             req.connect(direccion);
+            try {
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled()) {
+                    String signed = HmacUtil.signPlainWithSuffix(solicitud, conf.getSharedSecret());
+                    req.send(signed.getBytes(ZMQ.CHARSET), 0);
+                } else {
+                    req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
+                }
+            } catch (Throwable t) {
+                req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
+            }
 
-            req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
             String respuesta = req.recvStr(0);
+            try {
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled() && respuesta != null) {
+                    if (!HmacUtil.verifyPlainWithSuffix(respuesta, conf.getSharedSecret())) {
+                        return null;
+                    }
+                    int idx = respuesta.lastIndexOf("||SIG:");
+                    if (idx != -1) respuesta = respuesta.substring(0, idx);
+                }
+            } catch (Throwable ignored) {}
             req.close();
             return respuesta;
         } catch (Exception e) {
@@ -300,8 +320,29 @@ public class ServicioMonitoreoConsulta {
             req.setReceiveTimeOut(4000);
             req.setSendTimeOut(4000);
             req.connect(direccion);
-            req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
+            try {
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled()) {
+                    String signed = HmacUtil.signPlainWithSuffix(solicitud, conf.getSharedSecret());
+                    req.send(signed.getBytes(ZMQ.CHARSET), 0);
+                } else {
+                    req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
+                }
+            } catch (Throwable t) {
+                req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
+            }
             String respuesta = req.recvStr(0);
+            try {
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled() && respuesta != null) {
+                    if (!HmacUtil.verifyPlainWithSuffix(respuesta, conf.getSharedSecret())) {
+                        req.close();
+                        return null;
+                    }
+                    int idx = respuesta.lastIndexOf("||SIG:");
+                    if (idx != -1) respuesta = respuesta.substring(0, idx);
+                }
+            } catch (Throwable ignored) {}
             req.close();
             return respuesta;
         } catch (Exception e) {
@@ -319,8 +360,29 @@ public class ServicioMonitoreoConsulta {
             req.setSendTimeOut(3000);
             req.connect(direccion);
 
-            req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
+            try {
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled()) {
+                    String signed = HmacUtil.signPlainWithSuffix(solicitud, conf.getSharedSecret());
+                    req.send(signed.getBytes(ZMQ.CHARSET), 0);
+                } else {
+                    req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
+                }
+            } catch (Throwable t) {
+                req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
+            }
             String respuesta = req.recvStr(0);
+            try {
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled() && respuesta != null) {
+                    if (!HmacUtil.verifyPlainWithSuffix(respuesta, conf.getSharedSecret())) {
+                        req.close();
+                        return "ERROR|Firma inválida en respuesta";
+                    }
+                    int idx = respuesta.lastIndexOf("||SIG:");
+                    if (idx != -1) respuesta = respuesta.substring(0, idx);
+                }
+            } catch (Throwable ignored) {}
             req.close();
             return respuesta != null ? respuesta : "ERROR|Sin respuesta del servicio de analítica";
         } catch (Exception e) {

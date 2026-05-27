@@ -85,10 +85,21 @@ public class BaseDatosPrincipal {
             System.out.println("[BD PRINCIPAL] SQLite: " + archivoDB);
             System.out.println("[BD PRINCIPAL] Estado: ACTIVA\n");
             
+            Configuracion confMain = Configuracion.getInstance();
             while (activa && !Thread.currentThread().isInterrupted()) {
                 String evento = puller.recvStr(0);
                 
                 if (evento != null) {
+                    try {
+                        if (confMain.isHmacEnabled()) {
+                            String[] partes = evento.split(" ", 2);
+                            String json = partes.length > 1 ? partes[1] : null;
+                            if (json == null || !HmacUtil.verifyJson(json, confMain.getSharedSecret())) {
+                                System.err.println("[BD PRINCIPAL][DROP] Evento con firma inválida descartado");
+                                continue;
+                            }
+                        }
+                    } catch (Throwable ignored) {}
                     almacenarEventoEnSQLite(evento);
                 }
             }
@@ -120,7 +131,26 @@ public class BaseDatosPrincipal {
                         continue;
                     }
 
+                    try {
+                        Configuracion conf = Configuracion.getInstance();
+                        if (conf.isHmacEnabled()) {
+                            boolean ok = HmacUtil.verifyPlainWithSuffix(solicitud, conf.getSharedSecret());
+                            if (!ok) {
+                                rep.send("ERROR|Firma inválida".getBytes(ZMQ.CHARSET), 0);
+                                continue;
+                            }
+                            int idx = solicitud.lastIndexOf("||SIG:");
+                            if (idx != -1) solicitud = solicitud.substring(0, idx);
+                        }
+                    } catch (Throwable ignored) {}
+
                     String respuesta = manejarSolicitudConsulta(solicitud);
+                    try {
+                        Configuracion conf2 = Configuracion.getInstance();
+                        if (conf2.isHmacEnabled()) {
+                            respuesta = HmacUtil.signPlainWithSuffix(respuesta, conf2.getSharedSecret());
+                        }
+                    } catch (Throwable ignored) {}
                     rep.send(respuesta.getBytes(ZMQ.CHARSET), 0);
                 }
 

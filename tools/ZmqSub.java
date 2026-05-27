@@ -15,7 +15,28 @@ public class ZmqSub {
             while (System.currentTimeMillis() < end) {
                 String msg = sub.recvStr(ZMQ.DONTWAIT);
                 if (msg != null) {
-                    System.out.println(msg);
+                    try {
+                        Configuracion conf = null;
+                        boolean hmac = false;
+                        try {
+                            conf = Configuracion.getInstance();
+                            hmac = conf.isHmacEnabled();
+                        } catch (Throwable ignored) {}
+
+                        if (hmac) {
+                            String[] partes = msg.split(" ", 2);
+                            String json = partes.length > 1 ? partes[1] : null;
+                            if (json != null && HmacUtil.verifyJson(json, conf.getSharedSecret())) {
+                                System.out.println(msg);
+                            } else {
+                                System.err.println("[ZmqSub][DROP] Firma inválida o faltante: " + msg);
+                            }
+                        } else {
+                            System.out.println(msg);
+                        }
+                    } catch (Exception e) {
+                        System.out.println(msg);
+                    }
                 } else {
                     Thread.sleep(100);
                 }

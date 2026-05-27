@@ -58,8 +58,15 @@ public class SensorGPS implements Runnable {
                     velocidadPromedio,
                     densidad
                 );
-                
-                String mensaje = "GPS " + evento.toJson();
+
+                String json = evento.toJson();
+                Configuracion conf = Configuracion.getInstance();
+                if (conf.isHmacEnabled()) {
+                    String sig = HmacUtil.hmacSha256Hex(conf.getSharedSecret(), json);
+                    json = HmacUtil.addSignatureToJson(json, sig);
+                }
+
+                String mensaje = "GPS " + json;
                 publisher.send(mensaje.getBytes(ZMQ.CHARSET), 0);
                 
                 System.out.println(String.format("[GPS] %s -> Velocidad: %.2f km/h, Densidad: %.2f veh/km, Congestión: %s", 
