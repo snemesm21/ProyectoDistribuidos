@@ -1,19 +1,32 @@
 {
-  "pc1": "127.0.0.1",
-  "pc2": "127.0.0.1",
-  "pc3": "127.0.0.1",
+  "pc1": "10.43.100.83",
+  "pc2": "10.43.99.238",
+  "pc3": "10.43.99.225",
+
   "filas": 5,
   "columnas": 5,
+
   "etiquetas_filas": ["A", "B", "C", "D", "E"],
   "etiquetas_columnas": [1, 2, 3, 4, 5],
-  "tipos": ["espira_inductiva", "camara", "gps"],
+
+  "tipos": [
+    "espira_inductiva",
+    "camara",
+    "gps"
+  ],
+
   "intervalo_segundos": 10,
+
   "sensores_pub": 5555,
   "broker_pub": 6666,
+
   "analitica_push_bd_principal": 7777,
   "analitica_push_bd_replica": 8888,
+
   "analitica_pub_semaforos": 9999,
+
   "bd_principal_rep": 11000,
   "bd_replica_rep": 11001,
+
   "analitica_rep_control": 12000
 }
