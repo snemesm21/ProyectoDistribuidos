@@ -1,6 +1,7 @@
 JARS = jeromq-0.5.3.jar
-CP = .:$(JARS)
-SOURCES = $(wildcard *.java)
+# include parent dir so HmacUtil.class (compiled from ../HmacUtil.java) is found at runtime
+CP = ..:.:$(JARS)
+SOURCES = $(wildcard *.java) ../HmacUtil.java
 
 .PHONY: all check-jars compile run run-broker run-broker-multi run-sensores run-all run-all-multi clean
 

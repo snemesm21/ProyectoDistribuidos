@@ -1,6 +1,7 @@
 JARS = jeromq-0.5.3.jar:sqlite-jdbc-3.46.0.0.jar:slf4j-api-2.0.13.jar:slf4j-simple-2.0.13.jar
-CP = .:$(JARS)
-SOURCES = $(wildcard *.java)
+# include parent dir so HmacUtil.class (compiled from ../HmacUtil.java) is found at runtime
+CP = ..:.:$(JARS)
+SOURCES = $(wildcard *.java) ../HmacUtil.java
 
 .PHONY: all check-jars compile run run-db run-monitoreo run-all clean
 
