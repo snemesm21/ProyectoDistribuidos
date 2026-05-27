@@ -131,7 +131,7 @@ public class BaseDatosReplica {
                     } catch (Throwable ignored) {}
 
                     String respuesta = manejarSolicitudConsulta(solicitud);
-                    // sign reply if enabled
+                    
                     try {
                         Configuracion conf2 = Configuracion.getInstance();
                         if (conf2.isHmacEnabled()) {

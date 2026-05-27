@@ -1063,10 +1063,10 @@ public class BaseDatosPrincipal {
                 } catch (SQLException e) {
                     String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
                     if (msg.contains("unique") || msg.contains("constraint")) {
-                        // evento ya presente: ignorar
+                        
                         continue;
                     } else {
-                        // otro error: log y continuar
+                        
                         System.err.println("[BD PRINCIPAL] Error importando linea del snapshot: " + e.getMessage());
                         continue;
                     }

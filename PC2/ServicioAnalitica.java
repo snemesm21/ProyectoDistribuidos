@@ -140,7 +140,7 @@ public class ServicioAnalitica {
                             } else {
                                 String req = solicitud;
                                 if (conf.isHmacEnabled()) {
-                                    // strip suffix for processing
+                                    
                                     int idx = solicitud.lastIndexOf("||SIG:");
                                     if (idx != -1) req = solicitud.substring(0, idx);
                                 }

@@ -191,7 +191,7 @@ public class ServicioMonitoreoConsulta {
                 return respuesta;
             }
 
-            // si recibimos un ERROR o no hubo respuesta, esperamos un poco y reintentamos
+            
             if (intento < MAX_REINTENTOS_CONSULTA) {
                 try {
                     Thread.sleep(RETARDO_REINTENTO_MS);
@@ -280,7 +280,7 @@ public class ServicioMonitoreoConsulta {
     }
 
     private boolean verificarPrincipal() {
-        // realizar varios pings rápidos antes de declarar indisponible
+        
         for (int i = 0; i < 2; i++) {
             String respuesta = consultarEnServidor(bdPrincipalAddress, "PING");
             if (respuesta != null && respuesta.startsWith("PONG")) return true;
