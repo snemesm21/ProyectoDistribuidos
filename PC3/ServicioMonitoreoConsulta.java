@@ -9,6 +9,8 @@ public class ServicioMonitoreoConsulta {
     private final String bdReplicaAddress;
     private volatile boolean ultimoEstadoPrincipalDisponible;
     private volatile boolean sincronizandoBackup;
+    private static final int MAX_REINTENTOS_CONSULTA = 3;
+    private static final long RETARDO_REINTENTO_MS = 400L;
 
     public ServicioMonitoreoConsulta(String bdPrincipalAddress, String bdReplicaAddress) {
         this.bdPrincipalAddress = bdPrincipalAddress;
@@ -181,16 +183,29 @@ public class ServicioMonitoreoConsulta {
     }
 
     private String consultarConFailover(String solicitud) {
-        String respuesta = consultarEnServidor(bdPrincipalAddress, solicitud);
-        if (respuesta != null && !respuesta.startsWith("ERROR")) {
-            System.out.println("[MONITOREO] Respuesta obtenida desde BD principal");
-            return respuesta;
+        String respuesta = null;
+        for (int intento = 1; intento <= MAX_REINTENTOS_CONSULTA; intento++) {
+            respuesta = consultarEnServidor(bdPrincipalAddress, solicitud);
+            if (respuesta != null && !respuesta.startsWith("ERROR")) {
+                System.out.println("[MONITOREO] Respuesta obtenida desde BD principal (intento " + intento + ")");
+                return respuesta;
+            }
+
+            // si recibimos un ERROR o no hubo respuesta, esperamos un poco y reintentamos
+            if (intento < MAX_REINTENTOS_CONSULTA) {
+                try {
+                    Thread.sleep(RETARDO_REINTENTO_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
         }
 
         if (respuesta == null) {
-            System.out.println("[MONITOREO] BD principal sin respuesta, usando réplica...");
+            System.out.println("[MONITOREO] BD principal sin respuesta tras " + MAX_REINTENTOS_CONSULTA + " intentos, usando réplica...");
         } else {
-            System.out.println("[MONITOREO] BD principal respondió con error, usando réplica...");
+            System.out.println("[MONITOREO] BD principal respondió con error tras " + MAX_REINTENTOS_CONSULTA + " intentos, usando réplica...");
         }
 
         String respuestaReplica = consultarEnServidor(bdReplicaAddress, solicitud);
@@ -205,8 +220,8 @@ public class ServicioMonitoreoConsulta {
     private String consultarEnServidor(String direccion, String solicitud) {
         try (ZContext context = new ZContext()) {
             ZMQ.Socket req = context.createSocket(ZMQ.REQ);
-            req.setReceiveTimeOut(3000);
-            req.setSendTimeOut(3000);
+            req.setReceiveTimeOut(5000);
+            req.setSendTimeOut(5000);
             req.connect(direccion);
 
             req.send(solicitud.getBytes(ZMQ.CHARSET), 0);
@@ -245,8 +260,18 @@ public class ServicioMonitoreoConsulta {
     }
 
     private boolean verificarPrincipal() {
-        String respuesta = consultarEnServidor(bdPrincipalAddress, "PING");
-        return respuesta != null && respuesta.startsWith("PONG");
+        // realizar varios pings rápidos antes de declarar indisponible
+        for (int i = 0; i < 2; i++) {
+            String respuesta = consultarEnServidor(bdPrincipalAddress, "PING");
+            if (respuesta != null && respuesta.startsWith("PONG")) return true;
+            try {
+                Thread.sleep(200L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
     }
 
     private void sincronizarBackupCompleto() {

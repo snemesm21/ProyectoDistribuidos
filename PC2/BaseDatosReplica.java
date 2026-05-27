@@ -287,26 +287,31 @@ public class BaseDatosReplica {
                 case "HISTORICO":
                     if (partes.length >= 4) {
                         return consultarHistorico(partes[1], partes[2], partes[3]);
-                    }
-                    if (partes.length >= 3) {
+                    } else if (partes.length == 3) {
                         return consultarHistorico(null, partes[1], partes[2]);
+                    } else if (partes.length == 2) {
+                        return consultarHistorico(partes[1], null, null);
                     }
-                    return "ERROR|Debe indicar interseccion y rango de tiempo";
+                    return consultarHistorico(null, null, null);
                 case "CAMBIOS_ESTADO":
                     if (partes.length >= 4) {
                         return consultarCambiosEstado(partes[1], partes[2], partes[3]);
+                    } else if (partes.length == 2) {
+                        return consultarCambiosEstado(partes[1], null, null);
                     }
-                    return "ERROR|Debe indicar interseccion y rango de tiempo";
+                    return consultarCambiosEstado(null, null, null);
                 case "PRIORIZACION":
                     if (partes.length >= 4) {
                         return consultarPriorizacion(partes[1], partes[2], partes[3]);
+                    } else if (partes.length == 2) {
+                        return consultarPriorizacion(partes[1], null, null);
                     }
-                    return "ERROR|Debe indicar interseccion y rango de tiempo";
+                    return consultarPriorizacion(null, null, null);
                 case "CONGESTION":
                     if (partes.length >= 3) {
                         return consultarEstadisticasCongestion(partes[1], partes[2]);
                     }
-                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                    return consultarEstadisticasCongestion(null, null);
                 case "VELOCIDAD_PROMEDIO":
                     if (partes.length < 2) {
                         return "ERROR|Debe indicar la interseccion";
@@ -316,22 +321,22 @@ public class BaseDatosReplica {
                     if (partes.length >= 3) {
                         return consultarEventosRango(partes[1], partes[2]);
                     }
-                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                    return consultarEventosRango(null, null);
                 case "TASA_ALMACENAMIENTO":
                     if (partes.length >= 3) {
                         return consultarTasaAlmacenamiento(partes[1], partes[2]);
                     }
-                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                    return consultarTasaAlmacenamiento(null, null);
                 case "LATENCIA_PROMEDIO":
                     if (partes.length >= 3) {
                         return consultarLatenciaPromedio(partes[1], partes[2]);
                     }
-                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                    return consultarLatenciaPromedio(null, null);
                 case "LATENCIA_ESTADISTICAS":
                     if (partes.length >= 3) {
                         return consultarLatenciaEstadisticas(partes[1], partes[2]);
                     }
-                    return "ERROR|Debe indicar fecha_inicio y fecha_fin";
+                    return consultarLatenciaEstadisticas(null, null);
                 case "ULTIMOS":
                     int limite = 10;
                     if (partes.length >= 2) {
@@ -486,33 +491,39 @@ public class BaseDatosReplica {
     private String consultarHistorico(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
         StringBuilder eventos = new StringBuilder();
         int totalEventos = 0;
-        String sql = "SELECT id, tipo_evento, tipo_sensor, interseccion, timestamp_evento, volumen, vehiculos_contados, velocidad_promedio, nivel_congestion FROM eventos WHERE timestamp_evento BETWEEN ? AND ?";
-        if (interseccion != null && !interseccion.isBlank()) {
-            sql += " AND interseccion = ?";
-        }
-        sql += " AND tipo_evento IN ('CAMARA', 'ESPIRA', 'GPS') ORDER BY timestamp_evento DESC LIMIT 50";
+        String sql = "SELECT id, tipo_evento, tipo_sensor, json_raw FROM eventos WHERE tipo_evento IN ('CAMARA', 'ESPIRA', 'GPS') ORDER BY id DESC LIMIT 500";
 
         try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
-            stmt.setString(1, fechaInicio);
-            stmt.setString(2, fechaFin);
-            if (interseccion != null && !interseccion.isBlank()) {
-                stmt.setString(3, interseccion);
-            }
             try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    totalEventos++;
-                    if (eventos.length() > 0) {
-                        eventos.append('\n');
+                while (rs.next() && totalEventos < 50) {
+                    String json = rs.getString("json_raw");
+                    String inter = extraerCampoTexto(json, "interseccion");
+                    if (inter == null || inter.isBlank()) inter = buscarCampoFlexible(json, "interseccion");
+
+                    if (interseccion != null && !interseccion.isBlank() && (inter == null || !inter.equalsIgnoreCase(interseccion))) {
+                        continue;
                     }
+
+                    totalEventos++;
+                    if (eventos.length() > 0) eventos.append('\n');
+
+                    String tipoSensor = extraerCampoTexto(json, "tipo_sensor");
+                    if (tipoSensor == null) tipoSensor = buscarCampoFlexible(json, "tipo_sensor");
+                    String tipoEvento = extraerCampoTexto(json, "tipo_evento");
+                    if (tipoEvento == null) tipoEvento = buscarCampoFlexible(json, "tipo_evento");
+
+                    String q = extraerCampoNumerico(json, "volumen");
+                    String cv = extraerCampoNumerico(json, "vehiculos_contados");
+                    String vp = extraerCampoNumerico(json, "velocidad_promedio");
+                    String nivel = extraerCampoTexto(json, "nivel_congestion");
                     eventos.append("- #").append(rs.getInt("id"))
-                        .append(" | ").append(valorTexto(rs.getString("tipo_sensor")))
-                        .append(" | ").append(valorTexto(rs.getString("tipo_evento")))
-                        .append(" | ").append(valorTexto(rs.getString("interseccion")))
-                        .append(" | ts=").append(valorTexto(rs.getString("timestamp_evento")))
-                        .append(" | Q=").append(valorNumerico(rs.getObject("volumen")))
-                        .append(" | Cv=").append(valorNumerico(rs.getObject("vehiculos_contados")))
-                        .append(" | Vp=").append(valorDecimal(rs.getObject("velocidad_promedio")))
-                        .append(" | Nivel=").append(valorTexto(rs.getString("nivel_congestion")));
+                        .append(" | ").append(valorTexto(tipoSensor))
+                        .append(" | ").append(valorTexto(tipoEvento))
+                        .append(" | ").append(valorTexto(inter))
+                        .append(" | Q=").append(q != null ? q : "N/A")
+                        .append(" | Cv=").append(cv != null ? cv : "N/A")
+                        .append(" | Vp=").append(vp != null ? vp : "N/A")
+                        .append(" | Nivel=").append(valorTexto(nivel));
                 }
             }
         }
@@ -521,37 +532,34 @@ public class BaseDatosReplica {
             .append("OK\n")
             .append("CONSULTA=HISTORICO\n")
             .append("INTERSECCION=").append(interseccion != null && !interseccion.isBlank() ? interseccion : "TODAS").append('\n')
-            .append("DESDE=").append(fechaInicio).append('\n')
-            .append("HASTA=").append(fechaFin).append('\n')
             .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
             .append("EVENTOS=\n")
-            .append(eventos.length() == 0 ? "- sin eventos en el rango" : eventos)
+            .append(eventos.length() == 0 ? "- sin eventos" : eventos)
             .toString();
     }
 
     private String consultarCambiosEstado(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
         StringBuilder eventos = new StringBuilder();
         int totalEventos = 0;
-        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' AND timestamp_evento BETWEEN ? AND ?";
-        if (interseccion != null && !interseccion.isBlank()) {
-            sql += " AND interseccion = ?";
-        }
-        sql += " ORDER BY id DESC";
+        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' ORDER BY id DESC LIMIT 500";
 
         try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
-            stmt.setString(1, fechaInicio);
-            stmt.setString(2, fechaFin);
-            if (interseccion != null && !interseccion.isBlank()) {
-                stmt.setString(3, interseccion);
-            }
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    totalEventos++;
                     String json = rs.getString("json_raw");
-                    if (eventos.length() > 0) {
-                        eventos.append('\n');
+                    String inter = extraerCampoTexto(json, "interseccion");
+                    if (inter == null || inter.isBlank()) inter = buscarCampoFlexible(json, "interseccion");
+
+                    if (interseccion != null && !interseccion.isBlank() && (inter == null || !inter.equalsIgnoreCase(interseccion))) {
+                        continue;
                     }
-                    eventos.append("- ts=").append(valorTexto(rs.getString("timestamp_evento")))
+
+                    totalEventos++;
+                    if (eventos.length() > 0) eventos.append('\n');
+                    String ts = extraerCampoTexto(json, "timestamp");
+                    if (ts == null) ts = valorTexto(rs.getString("timestamp_evento"));
+
+                    eventos.append("- ts=").append(valorTexto(ts))
                         .append(" | INT=").append(valorTexto(extraerCampoTexto(json, "interseccion")))
                         .append(" | ANTERIOR=").append(valorTexto(extraerCampoTexto(json, "estado_anterior")))
                         .append(" | NUEVO=").append(valorTexto(extraerCampoTexto(json, "estado_nuevo")))
@@ -569,37 +577,34 @@ public class BaseDatosReplica {
             .append("OK\n")
             .append("CONSULTA=CAMBIOS_ESTADO\n")
             .append("INTERSECCION=").append(interseccion != null && !interseccion.isBlank() ? interseccion : "TODAS").append('\n')
-            .append("DESDE=").append(fechaInicio).append('\n')
-            .append("HASTA=").append(fechaFin).append('\n')
             .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
             .append("EVENTOS=\n")
-            .append(eventos.length() == 0 ? "- sin cambios de estado en el rango" : eventos)
+            .append(eventos.length() == 0 ? "- sin cambios de estado" : eventos)
             .toString();
     }
 
     private String consultarPriorizacion(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
         StringBuilder eventos = new StringBuilder();
         int totalEventos = 0;
-        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'PRIORIZACION' AND timestamp_evento BETWEEN ? AND ?";
-        if (interseccion != null && !interseccion.isBlank()) {
-            sql += " AND interseccion = ?";
-        }
-        sql += " ORDER BY id DESC";
+        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'PRIORIZACION' ORDER BY id DESC LIMIT 500";
 
         try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
-            stmt.setString(1, fechaInicio);
-            stmt.setString(2, fechaFin);
-            if (interseccion != null && !interseccion.isBlank()) {
-                stmt.setString(3, interseccion);
-            }
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    totalEventos++;
                     String json = rs.getString("json_raw");
-                    if (eventos.length() > 0) {
-                        eventos.append('\n');
+                    String inter = extraerCampoTexto(json, "interseccion");
+                    if (inter == null || inter.isBlank()) inter = buscarCampoFlexible(json, "interseccion");
+
+                    if (interseccion != null && !interseccion.isBlank() && (inter == null || !inter.equalsIgnoreCase(interseccion))) {
+                        continue;
                     }
-                    eventos.append("- ts=").append(valorTexto(rs.getString("timestamp_evento")))
+
+                    totalEventos++;
+                    if (eventos.length() > 0) eventos.append('\n');
+                    String ts = extraerCampoTexto(json, "timestamp");
+                    if (ts == null) ts = valorTexto(rs.getString("timestamp_evento"));
+
+                    eventos.append("- ts=").append(valorTexto(ts))
                         .append(" | INT=").append(valorTexto(extraerCampoTexto(json, "interseccion")))
                         .append(" | DURACION=").append(valorTexto(extraerCampoTexto(json, "duracion_verde"))).append('s')
                         .append(" | CAUSA=").append(valorTexto(extraerCampoTexto(json, "causa")))
@@ -613,39 +618,39 @@ public class BaseDatosReplica {
             .append("OK\n")
             .append("CONSULTA=PRIORIZACION\n")
             .append("INTERSECCION=").append(interseccion != null && !interseccion.isBlank() ? interseccion : "TODAS").append('\n')
-            .append("DESDE=").append(fechaInicio).append('\n')
-            .append("HASTA=").append(fechaFin).append('\n')
             .append("TOTAL_EVENTOS=").append(totalEventos).append('\n')
             .append("EVENTOS=\n")
-            .append(eventos.length() == 0 ? "- sin priorizaciones en el rango" : eventos)
+            .append(eventos.length() == 0 ? "- sin priorizaciones" : eventos)
             .toString();
     }
 
     private String consultarEstadisticasCongestion(String fechaInicio, String fechaFin) throws SQLException {
         StringBuilder resumen = new StringBuilder();
-        try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT interseccion, COUNT(*) AS total FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' AND timestamp_evento BETWEEN ? AND ? AND json_raw LIKE '%\"estado_nuevo\":\"CONGESTION\"%' GROUP BY interseccion ORDER BY total DESC, interseccion ASC"
-             )) {
-            stmt.setString(1, fechaInicio);
-            stmt.setString(2, fechaFin);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    if (resumen.length() > 0) {
-                        resumen.append('\n');
-                    }
-                    resumen.append("- ").append(valorTexto(rs.getString("interseccion")))
-                        .append(" | TRANSICIONES_CONGESTION=").append(rs.getInt("total"));
-                }
+        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
+        String sql = "SELECT json_raw FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' AND json_raw LIKE '%\"estado_nuevo\":\"CONGESTION\"%' ORDER BY id DESC LIMIT 1000";
+        try (PreparedStatement stmt = conexion.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) {
+                String json = rs.getString(1);
+                String inter = extraerCampoTexto(json, "interseccion");
+                if (inter == null || inter.isBlank()) inter = buscarCampoFlexible(json, "interseccion");
+                if (inter == null || inter.isBlank()) inter = "DESCONOCIDA";
+                counts.put(inter, counts.getOrDefault(inter, 0) + 1);
             }
+        }
+
+        java.util.List<java.util.Map.Entry<String,Integer>> lista = new java.util.ArrayList<>(counts.entrySet());
+        lista.sort((a,b) -> b.getValue().compareTo(a.getValue()));
+        for (java.util.Map.Entry<String,Integer> e : lista) {
+            if (resumen.length() > 0) resumen.append('\n');
+            resumen.append("- ").append(valorTexto(e.getKey())).append(" | TRANSICIONES_CONGESTION=").append(e.getValue());
         }
 
         return new StringBuilder()
             .append("OK\n")
             .append("CONSULTA=CONGESTION\n")
-            .append("DESDE=").append(fechaInicio).append('\n')
-            .append("HASTA=").append(fechaFin).append('\n')
             .append("RESULTADOS=\n")
-            .append(resumen.length() == 0 ? "- sin transiciones a congestión en el rango" : resumen)
+            .append(resumen.length() == 0 ? "- sin transiciones a congestión" : resumen)
             .toString();
     }
 
@@ -674,6 +679,19 @@ public class BaseDatosReplica {
     }
 
     private String consultarEventosRango(String fechaInicio, String fechaFin) throws SQLException {
+        if (fechaInicio == null || fechaInicio.isBlank() || fechaFin == null || fechaFin.isBlank()) {
+            try (Statement s = conexion.createStatement();
+                 ResultSet rs = s.executeQuery("SELECT MIN(timestamp_evento), MAX(timestamp_evento) FROM eventos WHERE timestamp_evento IS NOT NULL")) {
+                if (rs.next()) {
+                    fechaInicio = rs.getString(1);
+                    fechaFin = rs.getString(2);
+                }
+            }
+            if (fechaInicio == null || fechaFin == null) {
+                return "OK\nCONSULTA=EVENTOS_RANGO\nDESDE=N/A\nHASTA=N/A\nTOTAL_EVENTOS=0";
+            }
+        }
+
         int totalEventos = 0;
         try (PreparedStatement stmt = conexion.prepareStatement(
                  "SELECT COUNT(*) FROM eventos WHERE timestamp_evento BETWEEN ? AND ?"
@@ -697,6 +715,19 @@ public class BaseDatosReplica {
     }
 
     private String consultarTasaAlmacenamiento(String fechaInicio, String fechaFin) throws SQLException {
+        if (fechaInicio == null || fechaInicio.isBlank() || fechaFin == null || fechaFin.isBlank()) {
+            try (Statement s = conexion.createStatement();
+                 ResultSet rs = s.executeQuery("SELECT MIN(timestamp_evento), MAX(timestamp_evento) FROM eventos WHERE timestamp_evento IS NOT NULL")) {
+                if (rs.next()) {
+                    fechaInicio = rs.getString(1);
+                    fechaFin = rs.getString(2);
+                }
+            }
+            if (fechaInicio == null || fechaFin == null) {
+                return "OK\nCONSULTA=TASA_ALMACENAMIENTO\nDESDE=N/A\nHASTA=N/A\nTOTAL_EVENTOS=0\nSEGUNDOS=0\nTASA_POR_SEGUNDO=0.0000";
+            }
+        }
+
         int totalEventos = 0;
         try (PreparedStatement stmt = conexion.prepareStatement(
                  "SELECT COUNT(*) FROM eventos WHERE timestamp_evento BETWEEN ? AND ?"
@@ -727,11 +758,19 @@ public class BaseDatosReplica {
     private String consultarLatenciaPromedio(String fechaInicio, String fechaFin) throws SQLException {
         long total = 0L;
         long suma = 0L;
-        try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT json_raw FROM eventos WHERE timestamp_evento BETWEEN ? AND ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION')"
-             )) {
-            stmt.setString(1, fechaInicio);
-            stmt.setString(2, fechaFin);
+        String sql;
+        boolean useRange = fechaInicio != null && !fechaInicio.isBlank() && fechaFin != null && !fechaFin.isBlank();
+        if (useRange) {
+            sql = "SELECT json_raw FROM eventos WHERE timestamp_evento BETWEEN ? AND ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION')";
+        } else {
+            sql = "SELECT json_raw FROM eventos WHERE tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION')";
+        }
+
+        try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+            if (useRange) {
+                stmt.setString(1, fechaInicio);
+                stmt.setString(2, fechaFin);
+            }
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     Integer latencia = extraerCampoEntero(rs.getString("json_raw"), "latencia_ms");
@@ -747,8 +786,8 @@ public class BaseDatosReplica {
         return new StringBuilder()
             .append("OK\n")
             .append("CONSULTA=LATENCIA_PROMEDIO\n")
-            .append("DESDE=").append(fechaInicio).append('\n')
-            .append("HASTA=").append(fechaFin).append('\n')
+            .append("DESDE=").append(useRange ? fechaInicio : "N/A").append('\n')
+            .append("HASTA=").append(useRange ? fechaFin : "N/A").append('\n')
             .append("MUESTRAS=").append(total).append('\n')
             .append("LATENCIA_PROMEDIO_MS=").append(String.format("%.2f", promedio))
             .toString();
@@ -759,11 +798,19 @@ public class BaseDatosReplica {
         long suma = 0L;
         Long minimo = null;
         Long maximo = null;
-        try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT json_raw FROM eventos WHERE timestamp_evento BETWEEN ? AND ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION')"
-             )) {
-            stmt.setString(1, fechaInicio);
-            stmt.setString(2, fechaFin);
+        String sql;
+        boolean useRange = fechaInicio != null && !fechaInicio.isBlank() && fechaFin != null && !fechaFin.isBlank();
+        if (useRange) {
+            sql = "SELECT json_raw FROM eventos WHERE timestamp_evento BETWEEN ? AND ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION')";
+        } else {
+            sql = "SELECT json_raw FROM eventos WHERE tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION')";
+        }
+
+        try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+            if (useRange) {
+                stmt.setString(1, fechaInicio);
+                stmt.setString(2, fechaFin);
+            }
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     Integer latencia = extraerCampoEntero(rs.getString("json_raw"), "latencia_ms");
@@ -786,8 +833,8 @@ public class BaseDatosReplica {
         return new StringBuilder()
             .append("OK\n")
             .append("CONSULTA=LATENCIA_ESTADISTICAS\n")
-            .append("DESDE=").append(fechaInicio).append('\n')
-            .append("HASTA=").append(fechaFin).append('\n')
+            .append("DESDE=").append(useRange ? fechaInicio : "N/A").append('\n')
+            .append("HASTA=").append(useRange ? fechaFin : "N/A").append('\n')
             .append("MUESTRAS=").append(total).append('\n')
             .append("LATENCIA_MIN_MS=").append(minimo != null ? minimo : 0).append('\n')
             .append("LATENCIA_MAX_MS=").append(maximo != null ? maximo : 0).append('\n')
