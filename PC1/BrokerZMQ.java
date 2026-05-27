@@ -1,5 +1,12 @@
 import org.zeromq.ZMQ;
 import org.zeromq.ZContext;
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpExchange;
+import java.net.InetSocketAddress;
+import java.io.OutputStream;
+import java.util.concurrent.atomic.AtomicLong;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Broker ZMQ normal - PC1
@@ -13,6 +20,11 @@ import org.zeromq.ZContext;
 public class BrokerZMQ {
     private int puertoSensores;
     private int puertoAnalitica;
+    // metrics
+    private final AtomicLong messagesReceived = new AtomicLong(0);
+    private final AtomicLong messagesForwarded = new AtomicLong(0);
+    private final AtomicLong totalProcessingLatencyNs = new AtomicLong(0);
+    private HttpServer metricsServer = null;
 
     public BrokerZMQ(int puertoSensores, int puertoAnalitica) {
         this.puertoSensores = puertoSensores;
@@ -38,17 +50,27 @@ public class BrokerZMQ {
             System.out.println("[BROKER] Publicando a analítica en puerto " + puertoAnalitica);
             System.out.println("=================================\n");
 
+            startMetricsServer(9001);
+
             try {
                 while (!Thread.currentThread().isInterrupted()) {
                     String mensaje = subscriber.recvStr(0);
                     if (mensaje != null) {
-                        publisher.send(mensaje.getBytes(ZMQ.CHARSET), 0);
-                        System.out.println("[BROKER][FORWARD] Evento reenviado: " + mensaje.split(" ")[0]);
+                        long recvNs = System.nanoTime();
+                        messagesReceived.incrementAndGet();
+                        String out = mensaje + " BROKER_RECV_NS=" + recvNs;
+                        long publishTime = System.nanoTime();
+                        publisher.send(out.getBytes(ZMQ.CHARSET), 0);
+                        long delta = publishTime - recvNs;
+                        totalProcessingLatencyNs.addAndGet(delta);
+                        messagesForwarded.incrementAndGet();
+                        System.out.println("[BROKER][FORWARD] Evento reenviado: " + mensaje.split(" ")[0] + " delta_ns=" + delta);
                     }
                 }
             } finally {
                 subscriber.close();
                 publisher.close();
+                stopMetricsServer();
             }
 
         } catch (Exception e) {
@@ -64,5 +86,43 @@ public class BrokerZMQ {
 
         BrokerZMQ broker = new BrokerZMQ(puertoSensores, puertoAnalitica);
         broker.iniciar();
+    }
+
+    private void startMetricsServer(int port) {
+        try {
+            metricsServer = HttpServer.create(new InetSocketAddress(port), 0);
+            metricsServer.createContext("/metrics", new HttpHandler() {
+                @Override
+                public void handle(HttpExchange exchange) {
+                    try {
+                        StringBuilder sb = new StringBuilder();
+                        sb.append("messages_received_total " + messagesReceived.get() + "\n");
+                        sb.append("messages_forwarded_total " + messagesForwarded.get() + "\n");
+                        long forwarded = Math.max(1, messagesForwarded.get());
+                        long avgNs = totalProcessingLatencyNs.get() / forwarded;
+                        sb.append("average_processing_latency_ns " + avgNs + "\n");
+                        byte[] resp = sb.toString().getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(200, resp.length);
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(resp);
+                        os.close();
+                    } catch (Exception e) {
+                        try { exchange.sendResponseHeaders(500,0); exchange.close(); } catch (Exception ex) {}
+                    }
+                }
+            });
+            metricsServer.setExecutor(null);
+            metricsServer.start();
+            System.out.println("[METRICS] HTTP metrics server started on port " + port + " (GET /metrics)");
+        } catch (Exception e) {
+            System.err.println("[METRICS] Failed to start metrics server: " + e.getMessage());
+        }
+    }
+
+    private void stopMetricsServer() {
+        if (metricsServer != null) {
+            metricsServer.stop(0);
+            metricsServer = null;
+        }
     }
 }
