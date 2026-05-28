@@ -82,10 +82,13 @@ public class PC1_SensoresMain {
     private static void agregarSensoresPorDefecto(List<Thread> hilos, String brokerAddress) {
         String[] intersecciones = {"INT-A1", "INT-B2", "INT-C3"};
         String[] tipos = {"espira_inductiva", "camara", "gps"};
+        int sensoresPorTipo = 1;
         for (String inter : intersecciones) {
             for (String tipo : tipos) {
-                String id = obtenerPrefijo(tipo) + "-" + inter + "-1";
-                agregarSensor(hilos, tipo, id, inter, 10, brokerAddress);
+                for (int i = 1; i <= sensoresPorTipo; i++) {
+                    String id = obtenerPrefijo(tipo) + "-" + inter + "-" + i;
+                    agregarSensor(hilos, tipo, id, inter, 10, brokerAddress);
+                }
             }
         }
     }
@@ -125,20 +128,23 @@ public class PC1_SensoresMain {
             Matcher mIntervalo = PATRON_INTERVALO.matcher(json);
             int intervalo = mIntervalo.find() ? Integer.parseInt(mIntervalo.group(1)) : 10;
 
+            int sensoresPorTipo = extraerEntero(json, "sensores_por_tipo", 1);
             String[] tipos = {"espira_inductiva", "camara", "gps"};
 
             System.out.println("Cuadrícula: " + filas + "×" + columnas
                 + " = " + (filas * columnas) + " intersecciones");
-            System.out.println("Sensores por intersección: " + tipos.length);
-            System.out.println("Total sensores: " + (filas * columnas * tipos.length));
+            System.out.println("Sensores por intersección: " + (tipos.length * sensoresPorTipo));
+            System.out.println("Total sensores: " + (filas * columnas * tipos.length * sensoresPorTipo));
             System.out.println("Intervalo: " + intervalo + "s");
             System.out.println("Broker: " + brokerAddress + "\n");
             for (String etFila : etiquetasFilas) {
                 for (String etCol : etiquetasColumnas) {
                     String interseccion = "INT-" + etFila + etCol;
                     for (String tipo : tipos) {
-                        String sensorId = obtenerPrefijo(tipo) + "-" + interseccion + "-1";
-                        agregarSensor(hilos, tipo, sensorId, interseccion, intervalo, brokerAddress);
+                        for (int i = 1; i <= sensoresPorTipo; i++) {
+                            String sensorId = obtenerPrefijo(tipo) + "-" + interseccion + "-" + i;
+                            agregarSensor(hilos, tipo, sensorId, interseccion, intervalo, brokerAddress);
+                        }
                     }
                 }
             }
