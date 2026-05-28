@@ -185,7 +185,7 @@ public class BaseDatosReplica {
             "SELECT AVG(velocidad_promedio) FROM eventos WHERE interseccion = ? AND velocidad_promedio IS NOT NULL"
         );
         stmtUltimosEventos = conexion.prepareStatement(
-            "SELECT id, tipo_evento, interseccion, timestamp_evento FROM eventos ORDER BY id DESC LIMIT ?"
+            "SELECT id, tipo_evento, tipo_sensor, interseccion, timestamp_evento FROM eventos WHERE timestamp_evento IS NOT NULL ORDER BY timestamp_evento DESC, id DESC LIMIT ?"
         );
         stmtEventosPorRango = conexion.prepareStatement(
             "SELECT id, tipo_evento, interseccion, timestamp_evento FROM eventos WHERE timestamp_evento BETWEEN ? AND ? ORDER BY timestamp_evento DESC"
@@ -482,7 +482,7 @@ public class BaseDatosReplica {
         String ultimoTimestamp = "N/A";
         try (Statement stmt = conexion.createStatement();
              ResultSet rs = stmt.executeQuery(
-                 "SELECT timestamp_evento FROM eventos WHERE timestamp_evento IS NOT NULL ORDER BY id DESC LIMIT 1"
+                 "SELECT timestamp_evento FROM eventos WHERE timestamp_evento IS NOT NULL ORDER BY timestamp_evento DESC LIMIT 1"
              )) {
             if (rs.next()) {
                 String valor = rs.getString(1);
@@ -513,7 +513,7 @@ public class BaseDatosReplica {
         String timestampEstado = "N/A";
 
         try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT volumen, velocidad_promedio, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'camara' ORDER BY id DESC LIMIT 1"
+                 "SELECT volumen, velocidad_promedio, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'camara' ORDER BY timestamp_evento DESC, id DESC LIMIT 1"
              )) {
             stmt.setString(1, interseccion);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -525,7 +525,7 @@ public class BaseDatosReplica {
         }
 
         try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT vehiculos_contados, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'espira_inductiva' ORDER BY id DESC LIMIT 1"
+                 "SELECT vehiculos_contados, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'espira_inductiva' ORDER BY timestamp_evento DESC, id DESC LIMIT 1"
              )) {
             stmt.setString(1, interseccion);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -536,7 +536,7 @@ public class BaseDatosReplica {
         }
 
         try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT velocidad_promedio, nivel_congestion, json_raw, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'gps' ORDER BY id DESC LIMIT 1"
+                 "SELECT velocidad_promedio, nivel_congestion, json_raw, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_sensor = 'gps' ORDER BY timestamp_evento DESC, id DESC LIMIT 1"
              )) {
             stmt.setString(1, interseccion);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -550,7 +550,7 @@ public class BaseDatosReplica {
 
         String jsonEstado = null;
         try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT json_raw, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION') ORDER BY id DESC LIMIT 1"
+                 "SELECT json_raw, timestamp_evento FROM eventos WHERE interseccion = ? AND tipo_evento IN ('CAMBIO_ESTADO', 'PRIORIZACION') ORDER BY timestamp_evento DESC, id DESC LIMIT 1"
              )) {
             stmt.setString(1, interseccion);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -595,7 +595,7 @@ public class BaseDatosReplica {
     private String consultarHistorico(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
         StringBuilder eventos = new StringBuilder();
         int totalEventos = 0;
-        String sql = "SELECT id, tipo_evento, tipo_sensor, json_raw FROM eventos WHERE tipo_evento IN ('CAMARA', 'ESPIRA', 'GPS') ORDER BY id DESC LIMIT 500";
+        String sql = "SELECT id, tipo_evento, tipo_sensor, json_raw FROM eventos WHERE tipo_evento IN ('CAMARA', 'ESPIRA', 'GPS') ORDER BY timestamp_evento DESC, id DESC LIMIT 500";
 
         try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
             try (ResultSet rs = stmt.executeQuery()) {
@@ -645,7 +645,7 @@ public class BaseDatosReplica {
     private String consultarCambiosEstado(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
         StringBuilder eventos = new StringBuilder();
         int totalEventos = 0;
-        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' ORDER BY id DESC LIMIT 500";
+        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' ORDER BY timestamp_evento DESC, id DESC LIMIT 500";
 
         try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
             try (ResultSet rs = stmt.executeQuery()) {
@@ -690,7 +690,7 @@ public class BaseDatosReplica {
     private String consultarPriorizacion(String interseccion, String fechaInicio, String fechaFin) throws SQLException {
         StringBuilder eventos = new StringBuilder();
         int totalEventos = 0;
-        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'PRIORIZACION' ORDER BY id DESC LIMIT 500";
+        String sql = "SELECT json_raw, timestamp_evento FROM eventos WHERE tipo_evento = 'PRIORIZACION' ORDER BY timestamp_evento DESC, id DESC LIMIT 500";
 
         try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
             try (ResultSet rs = stmt.executeQuery()) {
@@ -731,7 +731,7 @@ public class BaseDatosReplica {
     private String consultarEstadisticasCongestion(String fechaInicio, String fechaFin) throws SQLException {
         StringBuilder resumen = new StringBuilder();
         java.util.Map<String, Integer> counts = new java.util.HashMap<>();
-        String sql = "SELECT json_raw FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' AND json_raw LIKE '%\"estado_nuevo\":\"CONGESTION\"%' ORDER BY id DESC LIMIT 1000";
+        String sql = "SELECT json_raw FROM eventos WHERE tipo_evento = 'CAMBIO_ESTADO' AND json_raw LIKE '%\"estado_nuevo\":\"CONGESTION\"%' ORDER BY timestamp_evento DESC, id DESC LIMIT 1000";
         try (PreparedStatement stmt = conexion.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
@@ -961,7 +961,7 @@ public class BaseDatosReplica {
         StringBuilder eventos = new StringBuilder();
 
         try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT id, tipo_evento, tipo_sensor, interseccion, timestamp_evento FROM eventos ORDER BY id DESC LIMIT ?"
+                 "SELECT id, tipo_evento, tipo_sensor, interseccion, timestamp_evento FROM eventos ORDER BY timestamp_evento DESC, id DESC LIMIT ?"
              )) {
             stmt.setInt(1, limite);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -992,7 +992,7 @@ public class BaseDatosReplica {
         int total = 0;
 
         try (PreparedStatement stmt = conexion.prepareStatement(
-                 "SELECT json_raw FROM eventos ORDER BY id ASC"
+                 "SELECT json_raw FROM eventos ORDER BY timestamp_evento ASC, id ASC"
              );
              ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
